@@ -4,6 +4,8 @@ import 'tasa_screen.dart';
 import 'dashboard_screen.dart';
 import 'clientes_screen.dart';
 import 'pos_screen.dart';
+import 'configuracion_screen.dart';
+import 'historial_ventas_screen.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -18,9 +20,11 @@ class _MainLayoutState extends State<MainLayout> {
   final List<Widget> _screens = [
     const DashboardScreen(), // 0
     const PosScreen(),       // 1
-    const InventarioScreen(), // 2
-    const ClientesScreen(),  // 3
-    const TasaBCVScreen(),   // 4
+    const HistorialVentasScreen(), // 2
+    const InventarioScreen(), // 3
+    const ClientesScreen(),  // 4
+    const TasaBCVScreen(),   // 5
+    const ConfiguracionScreen(), // 6
   ];
 
   @override
@@ -43,9 +47,11 @@ class _MainLayoutState extends State<MainLayout> {
             destinations: const [
               NavigationRailDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard, color: Colors.blue), label: Text('Inicio')),
               NavigationRailDestination(icon: Icon(Icons.point_of_sale_outlined), selectedIcon: Icon(Icons.point_of_sale, color: Colors.blue), label: Text('Facturar')),
+              NavigationRailDestination(icon: Icon(Icons.history_outlined),selectedIcon: Icon(Icons.history, color: Colors.blue),label: Text('Ventas'),),
               NavigationRailDestination(icon: Icon(Icons.inventory_2_outlined), selectedIcon: Icon(Icons.inventory, color: Colors.blue), label: Text('Inventario')),
               NavigationRailDestination(icon: Icon(Icons.people_alt_outlined), selectedIcon: Icon(Icons.people, color: Colors.blue), label: Text('Clientes')),
               NavigationRailDestination(icon: Icon(Icons.currency_exchange_outlined), selectedIcon: Icon(Icons.currency_exchange, color: Colors.blue), label: Text('Tasa BCV')),
+              NavigationRailDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings, color: Colors.blue), label: Text('Ajustes')),
             ],
           ),
           const VerticalDivider(thickness: 1, width: 1, color: Color(0xFFEEEEEE)),

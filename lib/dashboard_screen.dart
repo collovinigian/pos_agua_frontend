@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:intl/intl.dart';
+import 'app_events.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -11,28 +13,32 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   bool _isLoading = true;
-  bool _isJornadaAbierta = false;
-  Map<String, dynamic>? _jornadaActual;
-
-  final TextEditingController _fondoUsdController = TextEditingController(text: '0');
-  final TextEditingController _fondoBsController = TextEditingController(text: '0');
+  Map<String, dynamic>? _jornadaActiva;
+  Map<String, dynamic>? _resumen;
+  
+  final TextEditingController _fondoController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _verificarJornada();
+    _verificarEstadoCaja();
   }
 
-  // 1. Pregunta al backend si hay un día activo
-  Future<void> _verificarJornada() async {
+  Future<void> _verificarEstadoCaja() async {
     setState(() => _isLoading = true);
     try {
-      final response = await http.get(Uri.parse('http://127.0.0.1:3000/api/jornadas/actual'));
+      final response = await http.get(Uri.parse('http://127.0.0.1:3000/api/reportes/actual'));
+      
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         setState(() {
-          _isJornadaAbierta = data['abierta'];
-          _jornadaActual = data['abierta'] ? data['data'] : null;
+          _jornadaActiva = data['jornada'];
+          _resumen = data['resumen'];
+        });
+      } else {
+        setState(() {
+          _jornadaActiva = null;
+          _resumen = null;
         });
       }
     } catch (e) {
@@ -42,195 +48,249 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // 2. Función para abrir la caja
   Future<void> _abrirCaja() async {
+  
+    setState(() => _isLoading = true);
     try {
       final response = await http.post(
-        Uri.parse('http://127.0.0.1:3000/api/jornadas/abrir'),
+        Uri.parse('http://127.0.0.1:3000/api/jornadas'),
         headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "fondo_caja_usd": double.tryParse(_fondoUsdController.text) ?? 0,
-          "fondo_caja_bs": double.tryParse(_fondoBsController.text) ?? 0
-        }),
+        body: jsonEncode({"fondo_inicial_usd": double.tryParse(_fondoController.text) ?? 0.0}),
       );
 
-      if (response.statusCode == 201) {
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Caja Abierta Exitosamente'), backgroundColor: Colors.green));
+        await _verificarEstadoCaja(); 
+        AppEvents.dispararActualizacion();
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error del servidor: ${response.body}')));
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error de conexión: $e')));
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _ejecutarCierreZ() async {
+    setState(() => _isLoading = true); 
+    try {
+      final response = await http.post(Uri.parse('http://127.0.0.1:3000/api/reportes/cierre-z'));
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ ¡Caja abierta con éxito!'), backgroundColor: Colors.green));
-          Navigator.pop(context); // Cierra el modal
-          _verificarJornada(); // Recarga la pantalla
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Cierre Z ejecutado. Caja cerrada.'), backgroundColor: Colors.green));
+          await _verificarEstadoCaja(); 
+          AppEvents.dispararActualizacion();
         }
       } else {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: ${response.body}')));
+        setState(() => _isLoading = false);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Error al abrir caja.')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error al cerrar caja: $e')));
+      setState(() => _isLoading = false);
     }
   }
 
-  // 3. Función para cerrar la caja
-  Future<void> _cerrarCaja() async {
-    if (_jornadaActual == null) return;
-    try {
-      final response = await http.put(
-        Uri.parse('http://127.0.0.1:3000/api/jornadas/cerrar/${_jornadaActual!['id']}'),
-      );
-
-      if (response.statusCode == 200) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🔒 Jornada cerrada. ¡Buen trabajo!'), backgroundColor: Colors.orange));
-          Navigator.pop(context); // Cierra el modal de confirmación
-          _verificarJornada(); // Recarga la pantalla
-        }
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Error al cerrar caja.')));
-    }
-  }
-
-  // Ventana flotante para pedir el dinero base al abrir
-  void _mostrarDialogoApertura() {
-    _fondoUsdController.text = '0';
-    _fondoBsController.text = '0';
-
+  // --- NUEVO: MENÚ DE OPCIONES DE CIERRE ---
+  void _mostrarOpcionesDeCierre() {
     showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Abrir Nueva Jornada'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Opciones de Cuadre de Caja', style: TextStyle(fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Ingresa el dinero en efectivo base con el que arrancas el día (sencillo para dar vueltos):'),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _fondoUsdController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Fondo Inicial en USD', border: OutlineInputBorder(), prefixIcon: Icon(Icons.attach_money)),
+            ListTile(
+              leading: const Icon(Icons.receipt_long, color: Colors.blue, size: 40),
+              title: const Text('Imprimir Reporte X', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Lectura de caja para cambio de turno. No cierra la jornada actual.'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _verificarEstadoCaja(); // Aquí a futuro mandaremos a imprimir
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🖨️ Generando Reporte X...')));
+              },
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _fondoBsController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Fondo Inicial en Bs', border: OutlineInputBorder(), prefixIcon: Text('Bs ', style: TextStyle(fontWeight: FontWeight.bold)), prefixIconConstraints: BoxConstraints(minWidth: 40, minHeight: 0)),
+            const Divider(height: 30),
+            ListTile(
+              leading: const Icon(Icons.lock, color: Colors.red, size: 40),
+              title: const Text('Ejecutar Cierre Z', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+              subtitle: const Text('Cierre definitivo fiscal. La caja quedará bloqueada hasta el próximo turno.'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _confirmarCierreZ(); // Pedimos una confirmación extra de seguridad
+              },
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: _abrirCaja,
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-            child: const Text('Abrir Caja'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar'))
         ],
       ),
     );
   }
 
-  // Ventana flotante para confirmar el cierre
-  void _mostrarDialogoCierre() {
+  void _confirmarCierreZ() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cerrar Jornada'),
-        content: const Text('¿Estás seguro de que deseas cerrar la caja de hoy? Ya no podrás facturar hasta abrir una nueva.'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('⚠️ Advertencia: Cierre Z', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+        content: const Text('¿Estás 100% seguro de ejecutar el Cierre Z?\n\nEsto finalizará la jornada y cerrará la caja. No podrás facturar más el día de hoy hasta abrir un turno nuevo.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
           ElevatedButton(
-            onPressed: _cerrarCaja,
+            onPressed: () {
+              Navigator.pop(ctx);
+              _ejecutarCierreZ();
+            },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-            child: const Text('Sí, Cerrar Caja'),
-          ),
+            child: const Text('Sí, Ejecutar Cierre Z'),
+          )
         ],
+      ),
+    );
+  }
+
+  // --- INTERFACES VISUALES ---
+  
+  Widget _buildPantallaAbrirCaja() {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.point_of_sale, size: 100, color: Colors.grey),
+            const SizedBox(height: 20),
+            const Text('Turno Cerrado', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey)),
+            const Text('Ingresa el fondo de caja chica para iniciar a facturar.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 32),
+            TextField(
+              controller: _fondoController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Fondo Inicial en USD', 
+                hintText: '0.00', // <--- ¡Esto es lo que lo pone en gris!
+                border: OutlineInputBorder(), 
+                prefixIcon: Icon(Icons.attach_money)
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: _abrirCaja,
+                icon: const Icon(Icons.lock_open),
+                label: const Text('ABRIR CAJA', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPantallaReportes() {
+    final double fondoApertura = double.tryParse(_jornadaActiva!['fondo_inicial_usd'].toString()) ?? 0.0;
+    final Map<String, dynamic> pagos = _resumen!['desglose_pagos'] ?? {};
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(32.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('ESTADO DE CAJA', textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 2)),
+                      Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(20)), child: Text('ABIERTA', style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.bold))),
+                    ],
+                  ),
+                  const Divider(height: 32, thickness: 2),
+                  
+                  // Info de Cabecera
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Jornada ID:', style: TextStyle(fontWeight: FontWeight.bold)), Text('#${_jornadaActiva!['id']}')]),
+                  const SizedBox(height: 8),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Apertura:', style: TextStyle(fontWeight: FontWeight.bold)), Text(DateFormat('dd/MM/yyyy hh:mm a').format(DateTime.parse(_jornadaActiva!['fecha_inicio'] ?? DateTime.now().toString()).toLocal()))]),
+                  const SizedBox(height: 8),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Facturas Emitidas:', style: TextStyle(fontWeight: FontWeight.bold)), Text('${_resumen!['cantidad_facturas']}')]),
+                  const Divider(height: 32),
+
+                  // Desglose de ingresos
+                  const Text('INGRESOS (PAGADOS)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                  const SizedBox(height: 16),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Fondo de Apertura (Caja Chica):'), Text('\$${fondoApertura.toStringAsFixed(2)}')]),
+                  ...pagos.entries.map((entry) => Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Ventas en ${entry.key}:'), Text('\$${double.parse(entry.value.toString()).toStringAsFixed(2)}')]),
+                  )),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    color: Colors.green.shade50,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('TOTAL EFECTIVO/BANCOS:', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('\$${(_resumen!['total_pagado_usd'] + fondoApertura).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green)),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 32),
+
+                  // Otros datos
+                  const Text('OTROS MOVIMIENTOS', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                  const SizedBox(height: 16),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Ventas a Crédito (Por Cobrar):', style: TextStyle(color: Colors.orange)), Text('\$${double.parse(_resumen!['total_pendiente_usd'].toString()).toStringAsFixed(2)}')]),
+                  const SizedBox(height: 8),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Facturas Devueltas (Anuladas):', style: TextStyle(color: Colors.red)), Text('\$${double.parse(_resumen!['total_anulado_usd'].toString()).toStringAsFixed(2)}')]),
+                  const SizedBox(height: 8),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('Impuestos (IVA Recaudado):', style: TextStyle(color: Colors.grey)), Text('\$${double.parse(_resumen!['total_iva_usd'].toString()).toStringAsFixed(2)}')]),
+                  const Divider(height: 40, thickness: 2),
+
+                  // BOTÓN ÚNICO DE CIERRE
+                  SizedBox(
+                    height: 55,
+                    child: ElevatedButton.icon(
+                      onPressed: _mostrarOpcionesDeCierre,
+                      icon: const Icon(Icons.point_of_sale),
+                      label: const Text('OPCIONES DE CIERRE / CUADRE', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade900, foregroundColor: Colors.white),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Panel de Control'),
+        title: const Text('Centro de Control (Caja)'),
         centerTitle: true,
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _verificarEstadoCaja, tooltip: 'Actualizar',)],
       ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Icono gigante visual
-              Icon(
-                _isJornadaAbierta ? Icons.store_outlined : Icons.store_mall_directory_rounded,
-                size: 120,
-                color: _isJornadaAbierta ? Colors.green : Colors.grey,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                _isJornadaAbierta ? '¡La Caja está Abierta!' : 'La Caja está Cerrada',
-                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                _isJornadaAbierta 
-                    ? 'Listo para facturar. Puedes cerrar el turno al final del día.' 
-                    : 'Abre la caja para comenzar a registrar facturas.',
-                style: const TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-              const SizedBox(height: 40),
-              
-              // Si está abierta, mostramos los fondos actuales y el botón rojo. Si no, el botón verde.
-              if (_isJornadaAbierta && _jornadaActual != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade300)
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.account_balance_wallet, color: Colors.blue),
-                      const SizedBox(width: 10),
-                      Text('Fondo Inicial: \$${_jornadaActual!['fondo_caja_usd']} | Bs ${_jornadaActual!['fondo_caja_bs']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 30),
-                ElevatedButton.icon(
-                  onPressed: _mostrarDialogoCierre,
-                  icon: const Icon(Icons.lock_outline),
-                  label: const Text('Cerrar Caja (Finalizar Día)'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                    textStyle: const TextStyle(fontSize: 18),
-                  ),
-                )
-              ] else ...[
-                ElevatedButton.icon(
-                  onPressed: _mostrarDialogoApertura,
-                  icon: const Icon(Icons.lock_open),
-                  label: const Text('Abrir Caja (Iniciar Día)'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    textStyle: const TextStyle(fontSize: 18),
-                  ),
-                )
-              ]
-            ],
-          ),
-        ),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _jornadaActiva == null 
+              ? _buildPantallaAbrirCaja() 
+              : _buildPantallaReportes(),
     );
   }
 }

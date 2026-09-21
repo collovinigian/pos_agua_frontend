@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'producto_screen.dart';
+import 'app_events.dart';
 
 class InventarioScreen extends StatefulWidget {
   const InventarioScreen({super.key});
@@ -21,10 +22,20 @@ class _InventarioScreenState extends State<InventarioScreen> {
   int? _sortColumnIndex;
   bool _isAscending = true;
 
-  @override
+ @override
   void initState() {
     super.initState();
     _inicializarDatos();
+    // 🔔 NUEVO: Escuchar el timbre para actualizar el stock automáticamente
+    AppEvents.refreshNotifier.addListener(_inicializarDatos);
+  }
+
+  // 🔔 NUEVO: Apagar el oyente para no gastar memoria si cambias de módulo
+  @override
+  void dispose() {
+    AppEvents.refreshNotifier.removeListener(_inicializarDatos);
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _inicializarDatos() async {

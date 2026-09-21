@@ -98,7 +98,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
                     SizedBox(
                       width: 80,
                       child: DropdownButtonFormField<String>(
-                        value: _tipoDocumento,
+                        initialValue: _tipoDocumento,
                         decoration: const InputDecoration(border: OutlineInputBorder()),
                         items: ['V', 'E', 'J', 'G'].map((tipo) => DropdownMenuItem(value: tipo, child: Text(tipo))).toList(),
                         onChanged: (val) => setState(() => _tipoDocumento = val!),
