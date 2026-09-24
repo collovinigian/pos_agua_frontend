@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
+import 'app_events.dart';
 
 class HistorialVentasScreen extends StatefulWidget {
   const HistorialVentasScreen({super.key});
@@ -19,8 +20,16 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
   void initState() {
     super.initState();
     _cargarFacturas();
+    AppEvents.refreshNotifier.addListener(_cargarFacturas);
   }
-
+  
+  @override
+    void dispose() {
+      // ESTO APAGA EL OÍDO CUANDO CIERRAS LA PANTALLA
+      AppEvents.refreshNotifier.removeListener(_cargarFacturas);
+      super.dispose();
+    }
+  
   Future<void> _cargarFacturas() async {
     setState(() => _isLoading = true);
     try {
@@ -164,77 +173,93 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
       return const Center(child: Text('No hay registros disponibles.', style: TextStyle(color: Colors.grey, fontSize: 16)));
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.vertical,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.resolveWith((states) => Colors.blue.shade50),
-          columns: const [
-            DataColumn(label: Text('N° Factura', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Fecha', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Cliente', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Total USD', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Total BS', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Estado', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('Acciones', style: TextStyle(fontWeight: FontWeight.bold))),
-          ],
-          rows: listaFacturas.map((factura) {
-            final isPendiente = factura['estado'] == 'PENDIENTE';
-            final isAnulada = factura['estado'] == 'ANULADA';
-            
-            // Colores dinámicos para el Estado
-            Color badgeColor = Colors.green.shade100;
-            Color textColor = Colors.green.shade800;
-            if (isPendiente) {
-              badgeColor = Colors.orange.shade100;
-              textColor = Colors.orange.shade800;
-            } else if (isAnulada) {
-              badgeColor = Colors.red.shade100;
-              textColor = Colors.red.shade800;
-            }
+    // Contenedor con borde y esquinas redondeadas idéntico al de Inventario
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            scrollDirection: Axis.vertical,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: DataTable(
+                  headingRowColor: WidgetStateProperty.resolveWith((states) => Colors.blue.shade50),
+                  columns: const [
+                    DataColumn(label: Text('N° Factura', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Fecha', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Cliente', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Total USD', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Total BS', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Estado', style: TextStyle(fontWeight: FontWeight.bold))),
+                    DataColumn(label: Text('Acciones', style: TextStyle(fontWeight: FontWeight.bold))),
+                  ],
+                  rows: listaFacturas.map((factura) {
+                    final isPendiente = factura['estado'] == 'PENDIENTE';
+                    final isAnulada = factura['estado'] == 'ANULADA';
+                    
+                    Color badgeColor = Colors.green.shade100;
+                    Color textColor = Colors.green.shade800;
+                    if (isPendiente) {
+                      badgeColor = Colors.orange.shade100;
+                      textColor = Colors.orange.shade800;
+                    } else if (isAnulada) {
+                      badgeColor = Colors.red.shade100;
+                      textColor = Colors.red.shade800;
+                    }
 
-            return DataRow(
-              cells: [
-                DataCell(Text(factura['numero_factura'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold))),
-                DataCell(Text(_formatearFecha(factura['createdAt']))),
-                DataCell(Text(factura['Cliente'] != null ? factura['Cliente']['nombre'] : '-')),
-                DataCell(Text('\$${factura['total_usd']}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold))),
-                DataCell(Text('Bs ${factura['total_bs']}', style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold))),
-                DataCell(
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(12)),
-                    child: Text(factura['estado'], style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12)),
-                  ),
-                ),
-                DataCell(
-                  Row(
-                    children: [
-                      if (isPendiente && mostrarAccionCobrar) ...[
-                        ElevatedButton.icon(
-                          onPressed: () => _mostrarDialogoCobro(factura),
-                          icon: const Icon(Icons.attach_money, size: 16),
-                          label: const Text('Cobrar'),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 12)),
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(factura['numero_factura'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold))),
+                        DataCell(Text(_formatearFecha(factura['createdAt']))),
+                        DataCell(Text(factura['Cliente'] != null ? factura['Cliente']['nombre'] : '-')),
+                        DataCell(Text('\$${factura['total_usd']}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold))),
+                        DataCell(Text('Bs ${factura['total_bs']}', style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold))),
+                        DataCell(
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(12)),
+                            child: Text(factura['estado'], style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12)),
+                          ),
                         ),
-                        const SizedBox(width: 8),
+                        DataCell(
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isPendiente && mostrarAccionCobrar) ...[
+                                ElevatedButton.icon(
+                                  onPressed: () => _mostrarDialogoCobro(factura),
+                                  icon: const Icon(Icons.attach_money, size: 16),
+                                  label: const Text('Cobrar'),
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 12)),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              if (!isAnulada)
+                                IconButton(
+                                  icon: const Icon(Icons.remove_shopping_cart, color: Colors.red),
+                                  tooltip: 'Anular Factura',
+                                  onPressed: () => _mostrarDialogoAnulacion(factura),
+                                ),
+                              if (!isPendiente)
+                                Text(isAnulada ? 'Devolución' : (factura['metodo_pago'] ?? ''), style: TextStyle(color: isAnulada ? Colors.red : Colors.grey, fontSize: 12)),
+                            ],
+                          )
+                        ),
                       ],
-                      if (!isAnulada)
-                        IconButton(
-                          icon: const Icon(Icons.remove_shopping_cart, color: Colors.red),
-                          tooltip: 'Anular Factura',
-                          onPressed: () => _mostrarDialogoAnulacion(factura),
-                        ),
-                      if (!isPendiente)
-                        Text(isAnulada ? 'Devolución' : (factura['metodo_pago'] ?? ''), style: TextStyle(color: isAnulada ? Colors.red : Colors.grey, fontSize: 12)),
-                    ],
-                  )
+                    );
+                  }).toList(),
                 ),
-              ],
-            );
-          }).toList(),
-        ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

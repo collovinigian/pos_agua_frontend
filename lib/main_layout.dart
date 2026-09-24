@@ -6,6 +6,7 @@ import 'clientes_screen.dart';
 import 'pos_screen.dart';
 import 'configuracion_screen.dart';
 import 'historial_ventas_screen.dart';
+import 'cuaderno_screen.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -18,13 +19,14 @@ class _MainLayoutState extends State<MainLayout> {
   int _selectedIndex = 0;
 
   final List<Widget> _screens = [
-    const DashboardScreen(), // 0
-    const PosScreen(),       // 1
+    const DashboardScreen(),       // 0
+    const PosScreen(),             // 1
     const HistorialVentasScreen(), // 2
-    const InventarioScreen(), // 3
-    const ClientesScreen(),  // 4
-    const TasaBCVScreen(),   // 5
-    const ConfiguracionScreen(), // 6
+    const CuadernoScreen(),        // 3 
+    const InventarioScreen(),      // 4
+    const ClientesScreen(),        // 5
+    const TasaBCVScreen(),         // 6
+    const ConfiguracionScreen(),   // 7
   ];
 
   @override
@@ -47,7 +49,8 @@ class _MainLayoutState extends State<MainLayout> {
             destinations: const [
               NavigationRailDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard, color: Colors.blue), label: Text('Inicio')),
               NavigationRailDestination(icon: Icon(Icons.point_of_sale_outlined), selectedIcon: Icon(Icons.point_of_sale, color: Colors.blue), label: Text('Facturar')),
-              NavigationRailDestination(icon: Icon(Icons.history_outlined),selectedIcon: Icon(Icons.history, color: Colors.blue),label: Text('Ventas'),),
+              NavigationRailDestination(icon: Icon(Icons.history_outlined), selectedIcon: Icon(Icons.history, color: Colors.blue), label: Text('Ventas')),
+              NavigationRailDestination(icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book, color: Colors.orange), label: Text('Cuaderno')),
               NavigationRailDestination(icon: Icon(Icons.inventory_2_outlined), selectedIcon: Icon(Icons.inventory, color: Colors.blue), label: Text('Inventario')),
               NavigationRailDestination(icon: Icon(Icons.people_alt_outlined), selectedIcon: Icon(Icons.people, color: Colors.blue), label: Text('Clientes')),
               NavigationRailDestination(icon: Icon(Icons.currency_exchange_outlined), selectedIcon: Icon(Icons.currency_exchange, color: Colors.blue), label: Text('Tasa BCV')),

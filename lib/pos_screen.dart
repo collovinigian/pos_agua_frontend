@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'app_events.dart'; // <--- Importamos nuestro timbre global
+import 'app_events.dart';
 
 class PosScreen extends StatefulWidget {
   const PosScreen({super.key});
@@ -31,13 +31,11 @@ class _PosScreenState extends State<PosScreen> {
   void initState() {
     super.initState();
     _inicializarPOS();
-    // NUEVO: La pantalla de facturación ahora escucha si alguien más hizo un cambio
     AppEvents.refreshNotifier.addListener(_inicializarPOS);
   }
 
   @override
   void dispose() {
-    // NUEVO: Apagamos el oyente si cerramos la app
     AppEvents.refreshNotifier.removeListener(_inicializarPOS);
     _searchController.dispose();
     _documentoClienteController.dispose();
@@ -63,8 +61,6 @@ class _PosScreenState extends State<PosScreen> {
         _tasaBcv = tasa;
         _clientes = jsonDecode(resClientes.body);
         _productos = (jsonDecode(resProductos.body) as List).where((p) => (p['cantidad'] ?? 0) > 0).toList();
-        
-        // Mantiene la búsqueda si tenías algo escrito
         _filtrarProductos(_searchController.text); 
         _isLoading = false;
       });
@@ -172,7 +168,7 @@ class _PosScreenState extends State<PosScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Row(children: [
-                    SizedBox(width: 80, child: DropdownButtonFormField<String>(value: tipoDoc, decoration: const InputDecoration(border: OutlineInputBorder()), items: ['V','E','J','G'].map((t)=>DropdownMenuItem(value: t, child: Text(t))).toList(), onChanged: (val) => setStateDialog(() => tipoDoc = val!))),
+                    SizedBox(width: 80, child: DropdownButtonFormField<String>(initialValue: tipoDoc, decoration: const InputDecoration(border: OutlineInputBorder()), items: ['V','E','J','G'].map((t)=>DropdownMenuItem(value: t, child: Text(t))).toList(), onChanged: (val) => setStateDialog(() => tipoDoc = val!))),
                     const SizedBox(width: 10),
                     Expanded(child: TextField(controller: docCtrl, decoration: const InputDecoration(labelText: 'Documento*', border: OutlineInputBorder()))),
                   ]),
@@ -240,8 +236,11 @@ class _PosScreenState extends State<PosScreen> {
     setState(() {
       int nueva = _carrito[idx]['cantidad'] + delta;
       if (nueva > 0 && nueva <= _carrito[idx]['stock_maximo']) {
-        _carrito[idx]['cantidad'] = nueva; _carrito[idx]['subtotal_usd'] = nueva * _carrito[idx]['precio_unitario_usd'];
-      } else if (nueva == 0) _carrito.removeAt(idx);
+        _carrito[idx]['cantidad'] = nueva; 
+        _carrito[idx]['subtotal_usd'] = nueva * _carrito[idx]['precio_unitario_usd'];
+      } else if (nueva == 0) {
+        _carrito.removeAt(idx);
+      }
     });
   }
 
@@ -312,14 +311,67 @@ class _PosScreenState extends State<PosScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ ¡Factura Procesada con Éxito!'), backgroundColor: Colors.green));
           _limpiarFactura();
-          // NUEVO: Tocamos el timbre para que Inventario y Ventas se actualicen
           AppEvents.dispararActualizacion(); 
         }
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: ${res.body}')));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Error al procesar')));
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // =====================================================================
+  // NUEVA FUNCIÓN: ANOTA EN CUADERNO AUTOMÁTICAMENTE SIN IVA
+  // =====================================================================
+  Future<void> _anotarEnCuaderno() async {
+    if (_clienteSeleccionado == null || _carrito.isEmpty) return;
+
+    setState(() => _isLoading = true);
+    try {
+      double subtotal = 0;
+      List<Map<String, dynamic>> productosCuaderno = [];
+
+      for (var item in _carrito) {
+        subtotal += item['subtotal_usd'];
+        productosCuaderno.add({
+          "producto_id": item['producto_id'],
+          "cantidad": item['cantidad'],
+          "precio_unitario_usd": item['precio_unitario_usd'],
+          "aplica_iva": false, // En el cuaderno siempre entra SIN IVA
+          "subtotal_usd": item['subtotal_usd'] 
+        });
+      }
+
+      final bodyData = jsonEncode({
+        "cliente_id": _clienteSeleccionado!['id'],
+        "subtotal_usd": subtotal,
+        "iva_usd": 0,
+        "total_usd": subtotal,
+        "productos": productosCuaderno
+      });
+
+      final res = await http.post(
+        Uri.parse('http://127.0.0.1:3000/api/cuaderno'),
+        headers: {"Content-Type": "application/json"},
+        body: bodyData
+      );
+
+      if (res.statusCode == 201) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('📓 ¡Anotado en el Cuaderno exitosamente!'), backgroundColor: Colors.orange));
+          _limpiarFactura();
+          AppEvents.dispararActualizacion(); 
+        }
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error: ${res.body}')));
+      }
+    } catch (e) {
+       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('❌ Error conectando al servidor')));
+    } finally {
+       if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -437,9 +489,31 @@ class _PosScreenState extends State<PosScreen> {
                               const Divider(), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('TOTAL USD:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), Text('\$${t['total_usd']!.toStringAsFixed(2)}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.green))]),
                               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('TOTAL BS:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), Text('Bs ${t['total_bs']!.toStringAsFixed(2)}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blue))]),
                               const SizedBox(height: 16),
-                              DropdownButtonFormField<String>(decoration: const InputDecoration(labelText: 'Método de Pago', border: OutlineInputBorder()), value: _metodoPago, items: ['Efectivo', 'Pago Móvil', 'Zelle', 'Punto de Venta', 'Transferencia', 'Biopago', 'Mixto', 'Crédito'].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (val) => setState(() => _metodoPago = val!)),
+                              DropdownButtonFormField<String>(decoration: const InputDecoration(labelText: 'Método de Pago', border: OutlineInputBorder()), initialValue: _metodoPago, items: ['Efectivo', 'Pago Móvil', 'Zelle', 'Punto de Venta', 'Transferencia', 'Biopago', 'Mixto', 'Crédito'].map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(), onChanged: (val) => setState(() => _metodoPago = val!)),
                               const SizedBox(height: 16),
-                              SizedBox(width: double.infinity, height: 50, child: ElevatedButton.icon(onPressed: (_carrito.isEmpty || _clienteSeleccionado == null) ? null : _procesarVenta, icon: const Icon(Icons.point_of_sale), label: const Text('PROCESAR FACTURA', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)))
+                              
+                              // ==========================================
+                              // BOTONES DE ACCIÓN: FACTURAR O CUADERNO
+                              // ==========================================
+                              SizedBox(
+                                width: double.infinity, height: 50, 
+                                child: ElevatedButton.icon(
+                                  onPressed: (_carrito.isEmpty || _clienteSeleccionado == null) ? null : _procesarVenta, 
+                                  icon: const Icon(Icons.point_of_sale), 
+                                  label: const Text('PROCESAR FACTURA', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), 
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white)
+                                )
+                              ),
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity, height: 50, 
+                                child: ElevatedButton.icon(
+                                  onPressed: (_carrito.isEmpty || _clienteSeleccionado == null) ? null : _anotarEnCuaderno, 
+                                  icon: const Icon(Icons.menu_book), 
+                                  label: const Text('ANOTAR EN CUADERNO', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), 
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade800, foregroundColor: Colors.white)
+                                )
+                              )
                             ],
                           ),
                         )
@@ -451,11 +525,10 @@ class _PosScreenState extends State<PosScreen> {
             ),
           ),
           
-          // ================= CAPA 2: EL BLOQUEO (SIN BOTÓN) =================
           if (cajaCerrada)
             Positioned.fill(
               child: Container(
-                color: Colors.white.withOpacity(0.85),
+                color: Colors.white.withValues(alpha: 0.85),
                 child: const Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
