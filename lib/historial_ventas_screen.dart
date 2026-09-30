@@ -6,6 +6,7 @@ import 'app_events.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class HistorialVentasScreen extends StatefulWidget {
   const HistorialVentasScreen({super.key});
@@ -184,8 +185,7 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
     );
   }
 
-  // --- GENERADOR DE PDF ---
-  Future<void> _generarReportePDF() async {
+Future<void> _generarReportePDF() async {
     if (_facturasFiltradas.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay datos para exportar')));
       return;
@@ -194,29 +194,33 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
     final pdf = pw.Document();
     
     double ventasTotales = 0;
+    double ventasTotalesBs = 0;
+
     for (var f in _facturasFiltradas) {
       if (f['estado'] != 'ANULADA') {
         ventasTotales += double.parse(f['total_usd'].toString());
+        ventasTotalesBs += double.parse(f['total_bs'].toString());
       }
     }
 
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.letter,
+        margin: const pw.EdgeInsets.all(30), // Márgenes un poco más pequeños
         build: (pw.Context context) => [
           pw.Header(
             level: 0,
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text('Reporte de Ventas Fiscales', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold)),
+                pw.Text('Reporte de Ventas Fiscales', style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold)),
                 pw.Text('Emitido: ${DateFormat('dd/MM/yyyy').format(DateTime.now())}')
               ]
             )
           ),
-          pw.Text('Periodo: $_etiquetaPeriodo', style: const pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
-          pw.Text('Filtro aplicado: $_filtroEstado', style: const pw.TextStyle(fontSize: 12, color: PdfColors.blueGrey)),
-          pw.SizedBox(height: 20),
+          pw.Text('Periodo: $_etiquetaPeriodo', style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700)),
+          pw.Text('Filtro aplicado: $_filtroEstado', style: const pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey)),
+          pw.SizedBox(height: 15),
           
           pw.Container(
             padding: const pw.EdgeInsets.all(10),
@@ -224,25 +228,46 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
               children: [
-                pw.Text('Facturas Listadas: ${_facturasFiltradas.length}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                pw.Text('TOTAL USD: \$${ventasTotales.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 16)),
+                pw.Text('Facturas: ${_facturasFiltradas.length}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Text('TOTAL BS: Bs ${ventasTotalesBs.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14)),
+                pw.Text('TOTAL USD: \$${ventasTotales.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14, color: PdfColors.green800)),
               ]
             )
           ),
-          pw.SizedBox(height: 20),
+          pw.SizedBox(height: 15),
 
           pw.TableHelper.fromTextArray(
-            headers: ['N° Factura', 'Fecha', 'Cliente', 'Estado', 'Total USD'],
-            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+            headers: ['N° Factura', 'Fecha', 'Cliente', 'Estado', 'Base (Bs)', 'IVA (Bs)', 'Total (Bs)', 'Total (\$)'],
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
+            cellStyle: const pw.TextStyle(fontSize: 9), // Fuente más pequeña para que quepan 8 columnas
             cellAlignment: pw.Alignment.centerLeft,
-            data: _facturasFiltradas.map((f) => [
-              f['numero_factura'] ?? '',
-              DateFormat('dd/MM/yy').format(DateTime.parse(f['createdAt']).toLocal()),
-              f['Cliente'] != null ? f['Cliente']['nombre'] : 'Sin Cliente',
-              f['estado'],
-              '\$${f['total_usd']}'
-            ]).toList(),
+            data: _facturasFiltradas.map((f) {
+              // Cálculos matemáticos extrayendo la tasa de la BD
+              final tasa = double.tryParse(f['tasa_bcv'].toString()) ?? 1.0;
+              final subtotalUsd = double.tryParse(f['subtotal_usd'].toString()) ?? 0.0;
+              final ivaUsd = double.tryParse(f['iva_usd'].toString()) ?? 0.0;
+              
+              final baseBs = subtotalUsd * tasa;
+              final ivaBs = ivaUsd * tasa;
+              final totalBs = double.tryParse(f['total_bs'].toString()) ?? 0.0;
+              final totalUsd = double.tryParse(f['total_usd'].toString()) ?? 0.0;
+
+              // Acortamos el nombre del cliente si es muy largo
+              String clienteStr = f['Cliente'] != null ? f['Cliente']['nombre'] : 'Contado';
+              if (clienteStr.length > 15) clienteStr = '${clienteStr.substring(0, 15)}...';
+
+              return [
+                f['numero_factura'] ?? '',
+                DateFormat('dd/MM/yy').format(DateTime.parse(f['createdAt']).toLocal()),
+                clienteStr,
+                f['estado'],
+                baseBs.toStringAsFixed(2),
+                ivaBs.toStringAsFixed(2),
+                totalBs.toStringAsFixed(2),
+                '\$${totalUsd.toStringAsFixed(2)}'
+              ];
+            }).toList(),
           )
         ],
       ),
@@ -254,18 +279,51 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
     );
   }
 
+// --- DESCARGAR EXCEL ---
+  Future<void> _descargarExcel() async {
+    // Si estás usando variables para filtrar por fecha, puedes anexarlas así:
+    // final url = Uri.parse('http://127.0.0.1:3000/api/facturas/exportar-excel?fecha_inicio=...&fecha_fin=...');
+    
+    final url = Uri.parse('http://127.0.0.1:3000/api/facturas/exportar-excel');
+    
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo iniciar la descarga del Excel')));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al descargar: $e')));
+      }
+    }
+  }
+
   // --- ACCIONES DE FACTURA (COBRAR Y ANULAR) ---
   Future<void> _anularFactura(int id) async {
     setState(() => _isLoading = true);
     try {
-      final res = await http.put(Uri.parse('http://127.0.0.1:3000/api/facturas/$id/anular'));
+      final res = await http.put(Uri.parse('http://127.0.0.1:3000/api/facturas/anular/$id'));
+      
       if (res.statusCode == 200) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Factura anulada con éxito'), backgroundColor: Colors.orange));
-        _cargarDatos();
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Factura anulada con éxito y Nota de Crédito emitida'), backgroundColor: Colors.orange));
+        _cargarDatos(); // Esto apaga el cargador al terminar
         AppEvents.dispararActualizacion();
+      } else {
+        // SOLUCIÓN: Mostrar el error del backend y APAGAR la carga
+        if (mounted) {
+          final errorMsg = jsonDecode(res.body)['mensaje'] ?? 'Error desconocido';
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Aviso: $errorMsg'), backgroundColor: Colors.red));
+          setState(() => _isLoading = false);
+        }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -392,11 +450,22 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
                           ),
                         ],
                       ),
-                      ElevatedButton.icon(
-                        onPressed: _generarReportePDF,
-                        icon: const Icon(Icons.print),
-                        label: const Text('Exportar PDF'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15)),
+                      Row(
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: _generarReportePDF,
+                            icon: const Icon(Icons.picture_as_pdf),
+                            label: const Text('PDF'),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15)),
+                          ),
+                          const SizedBox(width: 10), // Separador entre los botones
+                          ElevatedButton.icon(
+                            onPressed: _descargarExcel, // 👈 ¡Aquí desaparece el warning!
+                            icon: const Icon(Icons.table_view),
+                            label: const Text('Excel'),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15)),
+                          ),
+                        ],
                       )
                     ],
                   ),

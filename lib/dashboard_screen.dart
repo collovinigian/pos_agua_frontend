@@ -75,7 +75,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _ejecutarCierreZ() async {
     setState(() => _isLoading = true); 
     try {
-      final response = await http.post(Uri.parse('http://127.0.0.1:3000/api/reportes/cierre-z'));
+      final response = await http.post(Uri.parse('http://127.0.0.1:3000/api/facturas/reporte-z'));
       
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (mounted) {
@@ -102,24 +102,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // BOTÓN REPORTE X (Conectado a la impresora)
             ListTile(
               leading: const Icon(Icons.receipt_long, color: Colors.blue, size: 40),
               title: const Text('Imprimir Reporte X', style: TextStyle(fontWeight: FontWeight.bold)),
               subtitle: const Text('Lectura de caja para cambio de turno. No cierra la jornada actual.'),
               onTap: () {
                 Navigator.pop(ctx);
-                _verificarEstadoCaja(); // Aquí a futuro mandaremos a imprimir
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('🖨️ Generando Reporte X...')));
+                _imprimirReporteX(); 
               },
             ),
             const Divider(height: 30),
+            // BOTÓN CIERRE Z
             ListTile(
               leading: const Icon(Icons.lock, color: Colors.red, size: 40),
               title: const Text('Ejecutar Cierre Z', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
               subtitle: const Text('Cierre definitivo fiscal. La caja quedará bloqueada hasta el próximo turno.'),
               onTap: () {
                 Navigator.pop(ctx);
-                _confirmarCierreZ(); // Pedimos una confirmación extra de seguridad
+                _confirmarCierreZ(); 
               },
             ),
           ],
@@ -292,5 +293,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ? _buildPantallaAbrirCaja() 
               : _buildPantallaReportes(),
     );
+  }
+
+  Future<void> _imprimirReporteX() async {
+    try {
+      final response = await http.post(Uri.parse('http://127.0.0.1:3000/api/facturas/reporte-x'));
+      
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('🖨️ Reporte X impreso con éxito'), backgroundColor: Colors.green),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('❌ Error al imprimir Reporte X: ${response.body}'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error de conexión: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 }
