@@ -137,17 +137,83 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   void _buscarCliente() {
-    String doc = _documentoClienteController.text.trim().toLowerCase();
-    if (doc.isEmpty) return;
-    var cliente = _clientes.firstWhere((c) => c['numero_documento'].toString().toLowerCase() == doc || '${c['tipo_documento']}-${c['numero_documento']}'.toLowerCase().contains(doc), orElse: () => null);
-    if (cliente != null) {
-      setState(() => _clienteSeleccionado = cliente);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Cliente: ${cliente['nombre']}'), backgroundColor: Colors.green, duration: const Duration(seconds: 1)));
+    String textoBuscado = _documentoClienteController.text.trim().toLowerCase();
+    if (textoBuscado.isEmpty) return;
+
+    String textoLimpio = textoBuscado.replaceAll(RegExp(r'[-\s]'), '');
+
+    // 1. Usamos .where en lugar de .firstWhere para obtener TODAS las coincidencias
+    List<dynamic> coincidencias = _clientes.where((c) {
+      String nombre = (c['nombre'] ?? '').toString().toLowerCase();
+      String docCompleto = '${c['tipo_documento']}${c['numero_documento']}'.toLowerCase();
+      String docCompletoLimpio = docCompleto.replaceAll(RegExp(r'[-\s]'), '');
+
+      return nombre.contains(textoBuscado) || docCompletoLimpio.contains(textoLimpio);
+    }).toList();
+
+    // 2. Tomamos la decisión en base a la cantidad de resultados encontrados
+    if (coincidencias.isEmpty) {
+      _mostrarRegistroRapido(textoBuscado);
+    } else if (coincidencias.length == 1) {
+      // Si encontró exactamente uno, lo selecciona directamente
+      _seleccionarClienteFinal(coincidencias.first);
     } else {
-      _mostrarRegistroRapido(doc);
+      // Si encontró varios, muestra la lista para que elijas
+      _mostrarListaDeCoincidencias(coincidencias);
     }
   }
 
+  // Función auxiliar para marcar al cliente como seleccionado
+  void _seleccionarClienteFinal(dynamic cliente) {
+    setState(() => _clienteSeleccionado = cliente);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('✅ Cliente: ${cliente['nombre']}'),
+      backgroundColor: Colors.green,
+      duration: const Duration(seconds: 1),
+    ));
+  }
+
+  // Nueva ventana emergente que lista los clientes con coincidencias
+  void _mostrarListaDeCoincidencias(List<dynamic> clientesEncontrados) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Seleccione el Cliente', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: clientesEncontrados.length,
+              itemBuilder: (context, index) {
+                var cliente = clientesEncontrados[index];
+                return Card(
+                  elevation: 2,
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  child: ListTile(
+                    leading: const Icon(Icons.person, color: Colors.blue),
+                    title: Text(cliente['nombre'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('${cliente['tipo_documento']}-${cliente['numero_documento']}'),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                    onTap: () {
+                      Navigator.pop(context); // Cierra la ventana emergente
+                      _seleccionarClienteFinal(cliente); // Selecciona el cliente al que le hiciste clic
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
   void _mostrarRegistroRapido(String docPrevio) {
     final docCtrl = TextEditingController(text: docPrevio);
     final nomCtrl = TextEditingController();
@@ -453,7 +519,7 @@ class _PosScreenState extends State<PosScreen> {
                                   child: Row(children: [const Icon(Icons.person, color: Colors.blue), const SizedBox(width: 10), Expanded(child: Text('${_clienteSeleccionado!['tipo_documento']}-${_clienteSeleccionado!['numero_documento']} | ${_clienteSeleccionado!['nombre']}', style: const TextStyle(fontWeight: FontWeight.bold))), IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: () => setState(() { _clienteSeleccionado = null; _documentoClienteController.clear(); }))]),
                                 )
                               ] else ...[
-                                TextField(controller: _documentoClienteController, decoration: InputDecoration(labelText: 'Cédula o RIF del Cliente', filled: true, fillColor: Colors.white, border: const OutlineInputBorder(), suffixIcon: IconButton(icon: const Icon(Icons.search, color: Colors.blue), onPressed: _buscarCliente)), onSubmitted: (_) => _buscarCliente())
+                                TextField(controller: _documentoClienteController, decoration: InputDecoration(hintText: 'Buscar por Razón Social, RIF (con o sin guiones)...', filled: true, fillColor: Colors.white, border: const OutlineInputBorder(), suffixIcon: IconButton(icon: const Icon(Icons.search, color: Colors.blue), onPressed: _buscarCliente)), onSubmitted: (_) => _buscarCliente())
                               ]
                             ],
                           ),

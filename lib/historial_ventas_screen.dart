@@ -21,7 +21,10 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
   
   bool _isLoading = true;
   
-  // Hacemos las fechas "nullable" (pueden ser nulas para indicar "Todo el histórico")
+  // Variables del Buscador
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  
   DateTime? _fechaInicio = DateTime.now();
   DateTime? _fechaFin = DateTime.now();
   String _filtroEstado = 'TODAS'; 
@@ -37,6 +40,7 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
   @override
   void dispose() {
     AppEvents.refreshNotifier.removeListener(_cargarDatos);
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -45,8 +49,9 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
     try {
       String queryParams = '';
       if (_fechaInicio != null && _fechaFin != null) {
-        String inicioStr = DateFormat('yyyy-MM-dd').format(_fechaInicio!);
-        String finStr = DateFormat('yyyy-MM-dd').format(_fechaFin!);
+        // 🔥 CORRECCIÓN: Quitamos el ".000Z" para que respete la hora de Venezuela
+        String inicioStr = "${DateFormat('yyyy-MM-dd').format(_fechaInicio!)}T00:00:00";
+        String finStr = "${DateFormat('yyyy-MM-dd').format(_fechaFin!)}T23:59:59";
         queryParams = '?fecha_inicio=$inicioStr&fecha_fin=$finStr';
       }
 
@@ -68,42 +73,20 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
   }
 
   // --- FILTROS RÁPIDOS DE FECHA ---
-  void _setFiltroFecha(String tipo) {
-    final now = DateTime.now();
-    setState(() {
-      if (tipo == 'HOY') {
-        _fechaInicio = now;
-        _fechaFin = now;
-        _etiquetaPeriodo = 'Hoy';
-      } else if (tipo == 'MES') {
-        _fechaInicio = DateTime(now.year, now.month, 1);
-        _fechaFin = DateTime(now.year, now.month + 1, 0); // Último día del mes
-        _etiquetaPeriodo = 'Este Mes';
-      } else if (tipo == 'TODO') {
-        _fechaInicio = null;
-        _fechaFin = null;
-        _etiquetaPeriodo = 'Histórico Completo';
-      }
-    });
-    
-    if (tipo != 'PERIODO') {
-      _cargarDatos();
-    } else {
-      _seleccionarFechasPersonalizadas();
-    }
-  }
-
-  Future<void> _seleccionarFechasPersonalizadas() async {
+  Future<void> _seleccionarRangoFechas() async {
     final DateTimeRange? rango = await showDateRangePicker(
       context: context,
-      initialEntryMode: DatePickerEntryMode.input,
+      initialEntryMode: DatePickerEntryMode.input, // <-- Permite alternar entre calendario y texto
       firstDate: DateTime(2024),
-      lastDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)), // Permite seleccionar hasta un año en el futuro
+      helpText: 'Selecciona el rango de fechas',
+      cancelText: 'Cancelar',
+      confirmText: 'Aceptar',
       initialDateRange: _fechaInicio != null && _fechaFin != null 
           ? DateTimeRange(start: _fechaInicio!, end: _fechaFin!) 
           : DateTimeRange(start: DateTime.now(), end: DateTime.now()),
       
-      // --- MAGIA DE DISEÑO: Forzamos a que sea una ventana centrada ---
+      // --- MAGIA DE DISEÑO: Restauramos tu ventana centrada ---
       builder: (context, child) {
         return Center(
           child: ConstrainedBox(
@@ -112,7 +95,6 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
               maxHeight: 600, // Alto proporcionado
             ),
             child: Theme(
-              // Opcional: Le damos un toque más elegante a los colores
               data: Theme.of(context).copyWith(
                 colorScheme: ColorScheme.light(
                   primary: Colors.blue.shade700,
@@ -130,11 +112,46 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
     if (rango != null) {
       setState(() {
         _fechaInicio = rango.start;
-        _fechaFin = rango.end;
-        _etiquetaPeriodo = "${DateFormat('dd/MM/yy').format(rango.start)} al ${DateFormat('dd/MM/yy').format(rango.end)}";
+        // 🔥 EL TRUCO VITAL: Alargamos el último día hasta el último segundo de la noche
+        _fechaFin = rango.end.add(const Duration(hours: 23, minutes: 59, seconds: 59));
+        
+        _etiquetaPeriodo = '${DateFormat('dd/MM/yy').format(rango.start)} al ${DateFormat('dd/MM/yy').format(rango.end)}';
       });
       _cargarDatos();
     }
+  }
+
+// --- FILTROS RÁPIDOS DE FECHA (RESTAURADO) ---
+  void _setFiltroFecha(String tipo) {
+    final now = DateTime.now();
+    setState(() {
+      if (tipo == 'HOY') {
+        _fechaInicio = now;
+        _fechaFin = now;
+        _etiquetaPeriodo = 'Hoy';
+      } else if (tipo == 'MES') {
+        _fechaInicio = DateTime(now.year, now.month, 1);
+        _fechaFin = DateTime(now.year, now.month + 1, 0); // Último día del mes
+        _etiquetaPeriodo = 'Este Mes';
+      }
+    });
+    
+    if (tipo != 'PERIODO') {
+      _cargarDatos();
+    } else {
+      _seleccionarRangoFechas(); // Abre el calendario con la corrección de las 23:59
+    }
+  }
+
+  void _limpiarFiltrosYDatos() {
+    setState(() {
+      _searchController.clear();
+      _searchQuery = '';
+      _fechaInicio = null;
+      _fechaFin = null;
+      _etiquetaPeriodo = 'Histórico Completo';
+    });
+    _cargarDatos();
   }
 
   // --- FILTROS DE ESTADO ---
@@ -185,7 +202,7 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
     );
   }
 
-Future<void> _generarReportePDF() async {
+  Future<void> _generarReportePDF() async {
     if (_facturasFiltradas.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay datos para exportar')));
       return;
@@ -196,7 +213,15 @@ Future<void> _generarReportePDF() async {
     double ventasTotales = 0;
     double ventasTotalesBs = 0;
 
-    for (var f in _facturasFiltradas) {
+    // Usar la lista filtrada también por el buscador para el PDF
+    List<dynamic> facturasParaPdf = _facturasFiltradas.where((f) {
+      if (_searchQuery.isEmpty) return true;
+      String numero = (f['numero_factura'] ?? '').toLowerCase();
+      String cliente = f['Cliente'] != null ? f['Cliente']['nombre'].toLowerCase() : '';
+      return numero.contains(_searchQuery) || cliente.contains(_searchQuery);
+    }).toList();
+
+    for (var f in facturasParaPdf) {
       if (f['estado'] != 'ANULADA') {
         ventasTotales += double.parse(f['total_usd'].toString());
         ventasTotalesBs += double.parse(f['total_bs'].toString());
@@ -206,7 +231,7 @@ Future<void> _generarReportePDF() async {
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.letter,
-        margin: const pw.EdgeInsets.all(30), // Márgenes un poco más pequeños
+        margin: const pw.EdgeInsets.all(30),
         build: (pw.Context context) => [
           pw.Header(
             level: 0,
@@ -228,7 +253,7 @@ Future<void> _generarReportePDF() async {
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
               children: [
-                pw.Text('Facturas: ${_facturasFiltradas.length}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                pw.Text('Facturas: ${facturasParaPdf.length}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
                 pw.Text('TOTAL BS: Bs ${ventasTotalesBs.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14)),
                 pw.Text('TOTAL USD: \$${ventasTotales.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 14, color: PdfColors.green800)),
               ]
@@ -240,10 +265,9 @@ Future<void> _generarReportePDF() async {
             headers: ['N° Factura', 'Fecha', 'Cliente', 'Estado', 'Base (Bs)', 'IVA (Bs)', 'Total (Bs)', 'Total (\$)'],
             headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
-            cellStyle: const pw.TextStyle(fontSize: 9), // Fuente más pequeña para que quepan 8 columnas
+            cellStyle: const pw.TextStyle(fontSize: 9), 
             cellAlignment: pw.Alignment.centerLeft,
-            data: _facturasFiltradas.map((f) {
-              // Cálculos matemáticos extrayendo la tasa de la BD
+            data: facturasParaPdf.map((f) {
               final tasa = double.tryParse(f['tasa_bcv'].toString()) ?? 1.0;
               final subtotalUsd = double.tryParse(f['subtotal_usd'].toString()) ?? 0.0;
               final ivaUsd = double.tryParse(f['iva_usd'].toString()) ?? 0.0;
@@ -253,7 +277,6 @@ Future<void> _generarReportePDF() async {
               final totalBs = double.tryParse(f['total_bs'].toString()) ?? 0.0;
               final totalUsd = double.tryParse(f['total_usd'].toString()) ?? 0.0;
 
-              // Acortamos el nombre del cliente si es muy largo
               String clienteStr = f['Cliente'] != null ? f['Cliente']['nombre'] : 'Contado';
               if (clienteStr.length > 15) clienteStr = '${clienteStr.substring(0, 15)}...';
 
@@ -279,12 +302,18 @@ Future<void> _generarReportePDF() async {
     );
   }
 
-// --- DESCARGAR EXCEL ---
+  // --- DESCARGAR EXCEL ---
   Future<void> _descargarExcel() async {
-    // Si estás usando variables para filtrar por fecha, puedes anexarlas así:
-    // final url = Uri.parse('http://127.0.0.1:3000/api/facturas/exportar-excel?fecha_inicio=...&fecha_fin=...');
+    String urlStr = 'http://127.0.0.1:3000/api/facturas/exportar-excel';
     
-    final url = Uri.parse('http://127.0.0.1:3000/api/facturas/exportar-excel');
+    if (_fechaInicio != null && _fechaFin != null) {
+      // 🔥 CORRECCIÓN: También quitamos el ".000Z" para las exportaciones a Excel
+      String inicioStr = "${DateFormat('yyyy-MM-dd').format(_fechaInicio!)}T00:00:00";
+      String finStr = "${DateFormat('yyyy-MM-dd').format(_fechaFin!)}T23:59:59";
+      urlStr += '?fecha_inicio=$inicioStr&fecha_fin=$finStr';
+    }
+    
+    final url = Uri.parse(urlStr);
     
     try {
       if (await canLaunchUrl(url)) {
@@ -309,10 +338,9 @@ Future<void> _generarReportePDF() async {
       
       if (res.statusCode == 200) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Factura anulada con éxito y Nota de Crédito emitida'), backgroundColor: Colors.orange));
-        _cargarDatos(); // Esto apaga el cargador al terminar
+        _cargarDatos(); 
         AppEvents.dispararActualizacion();
       } else {
-        // SOLUCIÓN: Mostrar el error del backend y APAGAR la carga
         if (mounted) {
           final errorMsg = jsonDecode(res.body)['mensaje'] ?? 'Error desconocido';
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Aviso: $errorMsg'), backgroundColor: Colors.red));
@@ -404,13 +432,23 @@ Future<void> _generarReportePDF() async {
   @override
   Widget build(BuildContext context) {
     double totalVentasUsd = 0;
-    double totalVentasBs = 0; // Acumulador del valor REAL histórico en Bs
+    double totalVentasBs = 0; 
     int emitidas = 0;
     
-    for (var f in _facturasFiltradas) {
+    // 1. Aplicamos el filtro del buscador
+    List<dynamic> facturasParaMostrar = _facturasFiltradas.where((f) {
+      if (_searchQuery.isEmpty) return true; 
+      
+      String numero = (f['numero_factura'] ?? '').toLowerCase();
+      String cliente = f['Cliente'] != null ? f['Cliente']['nombre'].toLowerCase() : '';
+      
+      return numero.contains(_searchQuery) || cliente.contains(_searchQuery);
+    }).toList();
+
+    // 2. Calculamos totales basados en la lista filtrada
+    for (var f in facturasParaMostrar) {
       if (f['estado'] != 'ANULADA') {
         totalVentasUsd += double.parse(f['total_usd'].toString());
-        // Sumamos el total_bs exactamente como se guardó en la base de datos el día de la venta
         totalVentasBs += double.tryParse((f['total_bs'] ?? '0').toString()) ?? 0.0;
         emitidas++;
       }
@@ -428,28 +466,59 @@ Future<void> _generarReportePDF() async {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.calendar_month, color: Colors.blue),
-                          const SizedBox(width: 8),
-                          Text('Mostrando: $_etiquetaPeriodo', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                          const SizedBox(width: 16),
-                          
-                          // MENÚ DESPLEGABLE DE FILTROS DE FECHA
-                          PopupMenuButton<String>(
-                            onSelected: _setFiltroFecha,
-                            icon: const Icon(Icons.filter_list_alt, color: Colors.blue),
-                            tooltip: 'Opciones de fecha',
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(value: 'HOY', child: Text('Día de Hoy')),
-                              const PopupMenuItem(value: 'MES', child: Text('Mes Actual')),
-                              const PopupMenuItem(value: 'PERIODO', child: Text('Elegir Rango...')),
-                              const PopupMenuDivider(),
-                              const PopupMenuItem(value: 'TODO', child: Text('Limpiar (Ver Todo Histórico)', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
-                            ],
-                          ),
-                        ],
+                      // SECCIÓN IZQUIERDA: Fechas, Menú, Recargar y Buscador
+                      Expanded(
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_month, color: Colors.blue),
+                            const SizedBox(width: 8),
+                            Text('Mostrando: $_etiquetaPeriodo', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 16),
+                            
+                            // MENÚ DESPLEGABLE RESTAURADO
+                            PopupMenuButton<String>(
+                              onSelected: _setFiltroFecha,
+                              icon: const Icon(Icons.filter_list_alt, color: Colors.blue),
+                              tooltip: 'Opciones de fecha',
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(value: 'HOY', child: Text('Día de Hoy')),
+                                const PopupMenuItem(value: 'MES', child: Text('Mes Actual')),
+                                const PopupMenuItem(value: 'PERIODO', child: Text('Elegir Rango...')),
+                              ],
+                            ),
+                            
+                            // BOTÓN DE RECARGAR/LIMPIAR (Afuera del menú, como pediste)
+                            IconButton(
+                              icon: const Icon(Icons.refresh, color: Colors.green),
+                              tooltip: 'Limpiar Filtros y Recargar (Ver Todo)',
+                              onPressed: _limpiarFiltrosYDatos,
+                            ),
+                            
+                            const SizedBox(width: 24),
+                            
+                            Expanded(
+                              child: TextField(
+                                controller: _searchController,
+                                decoration: InputDecoration(
+                                  labelText: 'Buscar Factura (Ej: F-000029) o Cliente',
+                                  prefixIcon: const Icon(Icons.search),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                                ),
+                                onChanged: (value) {
+                                  setState(() {
+                                    _searchQuery = value.toLowerCase();
+                                  });
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                          ],
+                        ),
                       ),
+
+                      // SECCIÓN DERECHA: Botones de exportar
                       Row(
                         children: [
                           ElevatedButton.icon(
@@ -458,9 +527,9 @@ Future<void> _generarReportePDF() async {
                             label: const Text('PDF'),
                             style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15)),
                           ),
-                          const SizedBox(width: 10), // Separador entre los botones
+                          const SizedBox(width: 10),
                           ElevatedButton.icon(
-                            onPressed: _descargarExcel, // 👈 ¡Aquí desaparece el warning!
+                            onPressed: _descargarExcel, 
                             icon: const Icon(Icons.table_view),
                             label: const Text('Excel'),
                             style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15)),
@@ -476,13 +545,12 @@ Future<void> _generarReportePDF() async {
                     children: [
                       Expanded(child: Card(color: Colors.blue.shade50, child: Padding(padding: const EdgeInsets.all(16.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Facturas Listadas', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)), Text('$emitidas', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold))])))),
                       Expanded(child: Card(color: Colors.green.shade50, child: Padding(padding: const EdgeInsets.all(16.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Total USD', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)), Text('\$${totalVentasUsd.toStringAsFixed(2)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold))])))),
-                      // Aquí se muestran los Bs reales sumados históricamente, NO el cálculo con la tasa actual
                       Expanded(child: Card(color: Colors.purple.shade50, child: Padding(padding: const EdgeInsets.all(16.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('Total Histórico (Bs)', style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold)), Text('Bs ${totalVentasBs.toStringAsFixed(2)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold))])))),
                     ],
                   ),
                   const SizedBox(height: 16),
 
-                  // BOTONES DE FILTRO RÁPIDO
+                  // BOTONES DE FILTRO RÁPIDO DE ESTADO
                   Row(
                     children: [
                       const Text('Filtrar por estado: ', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -491,19 +559,19 @@ Future<void> _generarReportePDF() async {
                       const SizedBox(width: 8),
                       ChoiceChip(label: const Text('Pagadas'), selected: _filtroEstado == 'PAGADA', onSelected: (_) => _aplicarFiltroEstado('PAGADA'), selectedColor: Colors.green.shade200),
                       const SizedBox(width: 8),
-                      ChoiceChip(label: const Text('Pendientes'), selected: _filtroEstado == 'PENDIENTE', onSelected: (_) => _aplicarFiltroEstado('PENDIENTE'), selectedColor: Colors.orange.shade200),
+                      ChoiceChip(label: const Text('Por cobrar'), selected: _filtroEstado == 'PENDIENTE', onSelected: (_) => _aplicarFiltroEstado('PENDIENTE'), selectedColor: Colors.orange.shade200),
                       const SizedBox(width: 8),
                       ChoiceChip(label: const Text('Anuladas'), selected: _filtroEstado == 'ANULADA', onSelected: (_) => _aplicarFiltroEstado('ANULADA'), selectedColor: Colors.red.shade200),
                     ],
                   ),
                   const SizedBox(height: 16),
 
-                  // TABLA
+                  // TABLA (Se le pasa la lista filtrada)
                   Expanded(
                     child: Container(
                       width: double.infinity,
                       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade300)),
-                      child: _construirTabla(_facturasFiltradas),
+                      child: _construirTabla(facturasParaMostrar),
                     ),
                   ),
                 ],
@@ -531,15 +599,22 @@ Future<void> _generarReportePDF() async {
                   DataColumn(label: Text('N° Factura', style: TextStyle(fontWeight: FontWeight.bold))),
                   DataColumn(label: Text('Fecha', style: TextStyle(fontWeight: FontWeight.bold))),
                   DataColumn(label: Text('Cliente', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('Condición', style: TextStyle(fontWeight: FontWeight.bold))),
+                  DataColumn(label: Text('Estado', style: TextStyle(fontWeight: FontWeight.bold))), // 🔥 MOVIDO AQUÍ
+                  DataColumn(label: Text('Base BS', style: TextStyle(fontWeight: FontWeight.bold))), 
                   DataColumn(label: Text('Total USD', style: TextStyle(fontWeight: FontWeight.bold))),
                   DataColumn(label: Text('Total BS', style: TextStyle(fontWeight: FontWeight.bold))),
-                  DataColumn(label: Text('Estado', style: TextStyle(fontWeight: FontWeight.bold))),
                   DataColumn(label: Text('Acciones', style: TextStyle(fontWeight: FontWeight.bold))),
                 ],
                 rows: listaFacturas.map((factura) {
                   final isAnulada = factura['estado'] == 'ANULADA';
                   final isPendiente = factura['estado'] == 'PENDIENTE';
                   
+                  final tasa = double.tryParse(factura['tasa_bcv'].toString()) ?? 1.0;
+                  final subtotalUsd = double.tryParse(factura['subtotal_usd'].toString()) ?? 0.0;
+                  final baseBs = subtotalUsd * tasa;
+                  final condicion = factura['metodo_pago'] == 'Crédito' ? 'Crédito' : 'Contado';
+
                   Color badgeColor = Colors.green.shade100;
                   Color textColor = Colors.green.shade800;
                   if (isAnulada) { badgeColor = Colors.red.shade100; textColor = Colors.red.shade800; }
@@ -550,21 +625,24 @@ Future<void> _generarReportePDF() async {
                       DataCell(Text(factura['numero_factura'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold))),
                       DataCell(Text(_formatearFecha(factura['createdAt']))),
                       DataCell(Text(factura['Cliente'] != null ? factura['Cliente']['nombre'] : '-')),
-                      DataCell(Text('\$${factura['total_usd']}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold))),
-                      // Agregamos la columna de los bolívares fijos guardados en la BD
-                      DataCell(Text('Bs ${factura['total_bs'] ?? '0.00'}', style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold))),
+                      
+                      // Celdas de Condición y Estado juntas
+                      DataCell(Text(condicion, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.blueGrey))),
                       DataCell(
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(color: badgeColor, borderRadius: BorderRadius.circular(12)),
                           child: Text(factura['estado'], style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12)),
                         ),
-                      ),
+                      ), // 🔥 MOVIDO AQUÍ
+
+                      DataCell(Text('Bs ${baseBs.toStringAsFixed(2)}')),
+                      DataCell(Text('\$${factura['total_usd']}', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold))),
+                      DataCell(Text('Bs ${factura['total_bs'] ?? '0.00'}', style: const TextStyle(color: Colors.purple, fontWeight: FontWeight.bold))),
                       DataCell(
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // EL BOTÓN DEL OJITO PARA VER PRODUCTOS
                             IconButton(
                               icon: const Icon(Icons.remove_red_eye, color: Colors.blue),
                               tooltip: 'Ver Productos',
