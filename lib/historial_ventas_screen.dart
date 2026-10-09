@@ -6,7 +6,8 @@ import 'app_events.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'dart:io';
+import 'package:file_selector/file_selector.dart';
 
 class HistorialVentasScreen extends StatefulWidget {
   const HistorialVentasScreen({super.key});
@@ -304,29 +305,62 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
 
   // --- DESCARGAR EXCEL ---
   Future<void> _descargarExcel() async {
-    String urlStr = 'http://127.0.0.1:3000/api/facturas/exportar-excel';
-    
-    if (_fechaInicio != null && _fechaFin != null) {
-      // 🔥 CORRECCIÓN: También quitamos el ".000Z" para las exportaciones a Excel
-      String inicioStr = "${DateFormat('yyyy-MM-dd').format(_fechaInicio!)}T00:00:00";
-      String finStr = "${DateFormat('yyyy-MM-dd').format(_fechaFin!)}T23:59:59";
-      urlStr += '?fecha_inicio=$inicioStr&fecha_fin=$finStr';
-    }
-    
-    final url = Uri.parse(urlStr);
-    
+    // 1. Abrimos la ventana nativa de "Guardar como..." usando file_selector (Oficial de Flutter)
+    final FileSaveLocation? ubicacion = await getSaveLocation(
+      suggestedName: 'Reporte_Ventas_${DateFormat('yyyyMMdd').format(DateTime.now())}.xlsx',
+      acceptedTypeGroups: [
+        const XTypeGroup(label: 'Archivos Excel', extensions: ['xlsx']),
+      ],
+    );
+
+    // Si el usuario presiona "Cancelar" o cierra la ventana, detenemos el proceso
+    if (ubicacion == null) return;
+
+    setState(() => _isLoading = true);
+
     try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      } else {
+      String urlStr = 'http://127.0.0.1:3000/api/facturas/exportar-excel';
+      
+      if (_fechaInicio != null && _fechaFin != null) {
+        String inicioStr = "${DateFormat('yyyy-MM-dd').format(_fechaInicio!)}T00:00:00";
+        String finStr = "${DateFormat('yyyy-MM-dd').format(_fechaFin!)}T23:59:59";
+        urlStr += '?fecha_inicio=$inicioStr&fecha_fin=$finStr';
+      }
+      
+      final url = Uri.parse(urlStr);
+      
+      // 2. Hacemos la petición GET para descargar los "bytes" del archivo
+      final res = await http.get(url);
+
+      if (res.statusCode == 200) {
+        // 3. Escribimos los bytes directamente en la ruta elegida (ubicacion.path)
+        final archivoFisico = File(ubicacion.path);
+        await archivoFisico.writeAsBytes(res.bodyBytes);
+
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo iniciar la descarga del Excel')));
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('✅ Excel guardado exitosamente'), //en:\n${ubicacion.path}
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ));
         }
+      } else {
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+             content: Text('❌ Error del servidor al generar el Excel'), 
+             backgroundColor: Colors.red
+           ));
+         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al descargar: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('❌ Error al guardar el archivo: $e'), 
+          backgroundColor: Colors.red
+        ));
       }
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -385,11 +419,26 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
 
       if (res.statusCode == 200) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Factura cobrada correctamente'), backgroundColor: Colors.green));
-        _cargarDatos();
+        await _cargarDatos(); 
         AppEvents.dispararActualizacion();
+      } else {
+         if (mounted) {
+            // 🔥 PROTECCIÓN: Intentamos leer JSON, si es HTML atrapamos el error silenciosamente
+            String errorMsg = 'Error en el servidor (Código: ${res.statusCode})';
+            try {
+              errorMsg = jsonDecode(res.body)['mensaje'] ?? errorMsg;
+            } catch (_) {
+              // Si falla el jsonDecode (porque es HTML), conservamos el errorMsg genérico
+            }
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Aviso: $errorMsg'), backgroundColor: Colors.red));
+            setState(() => _isLoading = false);
+         }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+      if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('❌ Error de conexión: $e'), backgroundColor: Colors.red));
+          setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -613,7 +662,11 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
                   final tasa = double.tryParse(factura['tasa_bcv'].toString()) ?? 1.0;
                   final subtotalUsd = double.tryParse(factura['subtotal_usd'].toString()) ?? 0.0;
                   final baseBs = subtotalUsd * tasa;
-                  final condicion = factura['metodo_pago'] == 'Crédito' ? 'Crédito' : 'Contado';
+                  // Extraemos los días de crédito (si es null, por defecto es 0)
+                  final diasCredito = int.tryParse(factura['dias_credito'].toString()) ?? 0;
+                  // Si tiene días de crédito, sabemos que históricamente fue a Crédito. 
+                  // Si no, es de Contado.
+                  final condicion = diasCredito > 0 ? 'Crédito' : 'Contado';
 
                   Color badgeColor = Colors.green.shade100;
                   Color textColor = Colors.green.shade800;

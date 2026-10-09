@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'inventario_screen.dart'; 
+import 'inventario_screen.dart';
 import 'tasa_screen.dart';
 import 'dashboard_screen.dart';
 import 'clientes_screen.dart';
@@ -19,14 +19,14 @@ class _MainLayoutState extends State<MainLayout> {
   int _selectedIndex = 0;
 
   final List<Widget> _screens = [
-    const DashboardScreen(),       // 0
-    const PosScreen(),             // 1
+    const DashboardScreen(), // 0
+    const PosScreen(), // 1
     const HistorialVentasScreen(), // 2
-    const CuadernoScreen(),        // 3 
-    const InventarioScreen(),      // 4
-    const ClientesScreen(),        // 5
-    const TasaBCVScreen(),         // 6
-    const ConfiguracionScreen(),   // 7
+    const CuadernoScreen(), // 3
+    const InventarioScreen(), // 4
+    const ClientesScreen(), // 5
+    const TasaBCVScreen(), // 6
+    const ConfiguracionScreen(), // 7
   ];
 
   @override
@@ -34,38 +34,100 @@ class _MainLayoutState extends State<MainLayout> {
     return Scaffold(
       body: Row(
         children: [
-          NavigationRail(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (int index) {
-              setState(() {
-                _selectedIndex = index;
-              });
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: IntrinsicHeight(
+                    child: NavigationRail(
+                      selectedIndex: _selectedIndex,
+                      onDestinationSelected: (int index) {
+                        setState(() {
+                          _selectedIndex = index;
+                        });
+                      },
+                      labelType: NavigationRailLabelType.all,
+                      backgroundColor: const Color(0xFFF8F9FA),
+                      elevation: 1,
+                      useIndicator: true,
+                      indicatorColor: Colors.blue.withValues(alpha: 0.2),
+                      destinations: const [
+                        NavigationRailDestination(
+                          icon: Icon(Icons.dashboard_outlined),
+                          selectedIcon: Icon(
+                            Icons.dashboard,
+                            color: Colors.blue,
+                          ),
+                          label: Text('Inicio'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.point_of_sale_outlined),
+                          selectedIcon: Icon(
+                            Icons.point_of_sale,
+                            color: Colors.blue,
+                          ),
+                          label: Text('Facturar'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.history_outlined),
+                          selectedIcon: Icon(Icons.history, color: Colors.blue),
+                          label: Text('Ventas'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.menu_book_outlined),
+                          selectedIcon: Icon(
+                            Icons.menu_book,
+                            color: Colors.orange,
+                          ),
+                          label: Text('Cuaderno'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.inventory_2_outlined),
+                          selectedIcon: Icon(
+                            Icons.inventory,
+                            color: Colors.blue,
+                          ),
+                          label: Text('Inventario'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.people_alt_outlined),
+                          selectedIcon: Icon(Icons.people, color: Colors.blue),
+                          label: Text('Clientes'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.currency_exchange_outlined),
+                          selectedIcon: Icon(
+                            Icons.currency_exchange,
+                            color: Colors.blue,
+                          ),
+                          label: Text('Tasa BCV'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.settings_outlined),
+                          selectedIcon: Icon(
+                            Icons.settings,
+                            color: Colors.blue,
+                          ),
+                          label: Text('Ajustes'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
             },
-            labelType: NavigationRailLabelType.all,
-            backgroundColor: const Color(0xFFF8F9FA), 
-            elevation: 1,
-            useIndicator: true,
-            indicatorColor: Colors.blue.withValues(alpha: 0.2),
-            destinations: const [
-              NavigationRailDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard, color: Colors.blue), label: Text('Inicio')),
-              NavigationRailDestination(icon: Icon(Icons.point_of_sale_outlined), selectedIcon: Icon(Icons.point_of_sale, color: Colors.blue), label: Text('Facturar')),
-              NavigationRailDestination(icon: Icon(Icons.history_outlined), selectedIcon: Icon(Icons.history, color: Colors.blue), label: Text('Ventas')),
-              NavigationRailDestination(icon: Icon(Icons.menu_book_outlined), selectedIcon: Icon(Icons.menu_book, color: Colors.orange), label: Text('Cuaderno')),
-              NavigationRailDestination(icon: Icon(Icons.inventory_2_outlined), selectedIcon: Icon(Icons.inventory, color: Colors.blue), label: Text('Inventario')),
-              NavigationRailDestination(icon: Icon(Icons.people_alt_outlined), selectedIcon: Icon(Icons.people, color: Colors.blue), label: Text('Clientes')),
-              NavigationRailDestination(icon: Icon(Icons.currency_exchange_outlined), selectedIcon: Icon(Icons.currency_exchange, color: Colors.blue), label: Text('Tasa BCV')),
-              NavigationRailDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings, color: Colors.blue), label: Text('Ajustes')),
-            ],
           ),
-          const VerticalDivider(thickness: 1, width: 1, color: Color(0xFFEEEEEE)),
-          
+          const VerticalDivider(
+            thickness: 1,
+            width: 1,
+            color: Color(0xFFEEEEEE),
+          ),
+
           Expanded(
             child: Container(
-              color: Colors.white, 
-              child: IndexedStack(
-                index: _selectedIndex,
-                children: _screens,
-              ),
+              color: Colors.white,
+              child: IndexedStack(index: _selectedIndex, children: _screens),
             ),
           ),
         ],
