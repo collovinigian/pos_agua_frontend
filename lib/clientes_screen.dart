@@ -38,10 +38,11 @@ class _ClientesScreenState extends State<ClientesScreen> {
         _filtrarClientes(_searchController.text);
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('❌ Error: $e')));
+      }
     } finally {
       setState(() => _isLoading = false);
     }
@@ -107,10 +108,11 @@ class _ClientesScreenState extends State<ClientesScreen> {
         }
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('❌ Error al eliminar: $e')));
+      }
     }
   }
 

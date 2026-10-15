@@ -7,6 +7,7 @@ import 'pos_screen.dart';
 import 'configuracion_screen.dart';
 import 'historial_ventas_screen.dart';
 import 'cuaderno_screen.dart';
+import 'compras_screen.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -22,11 +23,12 @@ class _MainLayoutState extends State<MainLayout> {
     const DashboardScreen(), // 0
     const PosScreen(), // 1
     const HistorialVentasScreen(), // 2
-    const CuadernoScreen(), // 3
-    const InventarioScreen(), // 4
-    const ClientesScreen(), // 5
-    const TasaBCVScreen(), // 6
-    const ConfiguracionScreen(), // 7
+    const ComprasScreen(), // 3
+    const CuadernoScreen(), // 4
+    const InventarioScreen(), // 5
+    const ClientesScreen(), // 6
+    const TasaBCVScreen(), // 7
+    const ConfiguracionScreen(), // 8
   ];
 
   @override
@@ -73,6 +75,14 @@ class _MainLayoutState extends State<MainLayout> {
                           icon: Icon(Icons.history_outlined),
                           selectedIcon: Icon(Icons.history, color: Colors.blue),
                           label: Text('Ventas'),
+                        ),
+                        NavigationRailDestination(
+                          icon: Icon(Icons.shopping_cart_outlined),
+                          selectedIcon: Icon(
+                            Icons.shopping_cart,
+                            color: Colors.blue,
+                          ),
+                          label: Text('Compras'),
                         ),
                         NavigationRailDestination(
                           icon: Icon(Icons.menu_book_outlined),
