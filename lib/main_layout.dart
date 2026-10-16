@@ -4,7 +4,7 @@ import 'tasa_screen.dart';
 import 'dashboard_screen.dart';
 import 'clientes_screen.dart';
 import 'pos_screen.dart';
-import 'configuracion_screen.dart';
+import 'ajustes_screen.dart';
 import 'historial_ventas_screen.dart';
 import 'cuaderno_screen.dart';
 import 'compras_screen.dart';
@@ -28,11 +28,13 @@ class _MainLayoutState extends State<MainLayout> {
     const InventarioScreen(), // 5
     const ClientesScreen(), // 6
     const TasaBCVScreen(), // 7
-    const ConfiguracionScreen(), // 8
+    const AjustesScreen(), // 8
   ];
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
       body: Row(
         children: [
@@ -50,76 +52,54 @@ class _MainLayoutState extends State<MainLayout> {
                         });
                       },
                       labelType: NavigationRailLabelType.all,
-                      backgroundColor: const Color(0xFFF8F9FA),
                       elevation: 1,
                       useIndicator: true,
-                      indicatorColor: Colors.blue.withValues(alpha: 0.2),
-                      destinations: const [
+                      indicatorColor: colorScheme.primary.withValues(alpha: 0.15),
+                      destinations: [
                         NavigationRailDestination(
-                          icon: Icon(Icons.dashboard_outlined),
-                          selectedIcon: Icon(
-                            Icons.dashboard,
-                            color: Colors.blue,
-                          ),
-                          label: Text('Inicio'),
+                          icon: const Icon(Icons.dashboard_outlined),
+                          selectedIcon: Icon(Icons.dashboard, color: colorScheme.primary),
+                          label: const Text('Inicio'),
                         ),
                         NavigationRailDestination(
-                          icon: Icon(Icons.point_of_sale_outlined),
-                          selectedIcon: Icon(
-                            Icons.point_of_sale,
-                            color: Colors.blue,
-                          ),
-                          label: Text('Facturar'),
+                          icon: const Icon(Icons.point_of_sale_outlined),
+                          selectedIcon: Icon(Icons.point_of_sale, color: colorScheme.primary),
+                          label: const Text('Facturar'),
                         ),
                         NavigationRailDestination(
-                          icon: Icon(Icons.history_outlined),
-                          selectedIcon: Icon(Icons.history, color: Colors.blue),
-                          label: Text('Ventas'),
+                          icon: const Icon(Icons.history_outlined),
+                          selectedIcon: Icon(Icons.history, color: colorScheme.primary),
+                          label: const Text('Ventas'),
                         ),
                         NavigationRailDestination(
-                          icon: Icon(Icons.shopping_cart_outlined),
-                          selectedIcon: Icon(
-                            Icons.shopping_cart,
-                            color: Colors.blue,
-                          ),
-                          label: Text('Compras'),
+                          icon: const Icon(Icons.shopping_cart_outlined),
+                          selectedIcon: Icon(Icons.shopping_cart, color: colorScheme.primary),
+                          label: const Text('Compras'),
                         ),
                         NavigationRailDestination(
-                          icon: Icon(Icons.menu_book_outlined),
-                          selectedIcon: Icon(
-                            Icons.menu_book,
-                            color: Colors.orange,
-                          ),
-                          label: Text('Cuaderno'),
+                          icon: const Icon(Icons.menu_book_outlined),
+                          selectedIcon: Icon(Icons.menu_book, color: Colors.orange),
+                          label: const Text('Cuaderno'),
                         ),
                         NavigationRailDestination(
-                          icon: Icon(Icons.inventory_2_outlined),
-                          selectedIcon: Icon(
-                            Icons.inventory,
-                            color: Colors.blue,
-                          ),
-                          label: Text('Inventario'),
+                          icon: const Icon(Icons.inventory_2_outlined),
+                          selectedIcon: Icon(Icons.inventory, color: colorScheme.primary),
+                          label: const Text('Inventario'),
                         ),
                         NavigationRailDestination(
-                          icon: Icon(Icons.people_alt_outlined),
-                          selectedIcon: Icon(Icons.people, color: Colors.blue),
-                          label: Text('Clientes'),
+                          icon: const Icon(Icons.people_alt_outlined),
+                          selectedIcon: Icon(Icons.people, color: colorScheme.primary),
+                          label: const Text('Clientes'),
                         ),
                         NavigationRailDestination(
-                          icon: Icon(Icons.currency_exchange_outlined),
-                          selectedIcon: Icon(
-                            Icons.currency_exchange,
-                            color: Colors.blue,
-                          ),
-                          label: Text('Tasa BCV'),
+                          icon: const Icon(Icons.currency_exchange_outlined),
+                          selectedIcon: Icon(Icons.currency_exchange, color: colorScheme.primary),
+                          label: const Text('Tasa BCV'),
                         ),
                         NavigationRailDestination(
-                          icon: Icon(Icons.settings_outlined),
-                          selectedIcon: Icon(
-                            Icons.settings,
-                            color: Colors.blue,
-                          ),
-                          label: Text('Ajustes'),
+                          icon: const Icon(Icons.settings_outlined),
+                          selectedIcon: Icon(Icons.settings, color: colorScheme.primary),
+                          label: const Text('Ajustes'),
                         ),
                       ],
                     ),
@@ -128,15 +108,14 @@ class _MainLayoutState extends State<MainLayout> {
               );
             },
           ),
-          const VerticalDivider(
+          VerticalDivider(
             thickness: 1,
             width: 1,
-            color: Color(0xFFEEEEEE),
+            color: Theme.of(context).dividerColor,
           ),
-
           Expanded(
             child: Container(
-              color: Colors.white,
+              color: colorScheme.surface,
               child: IndexedStack(index: _selectedIndex, children: _screens),
             ),
           ),

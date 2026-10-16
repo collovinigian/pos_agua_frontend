@@ -11,6 +11,8 @@ import 'package:printing/printing.dart';
 import 'app_events.dart';
 import 'producto_screen.dart';
 
+enum TipoRenglon { producto, servicio }
+
 class ComprasScreen extends StatefulWidget {
   const ComprasScreen({super.key});
 
@@ -20,6 +22,7 @@ class ComprasScreen extends StatefulWidget {
 
 class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  TipoRenglon _tipoRenglon = TipoRenglon.producto;
 
   // Datos Fiscales del Agente de Retención (Nuestra Empresa)
   static const Map<String, String> agenteRetencion = {
@@ -227,7 +230,12 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
 
   void _actualizarConversionPorCambioTasa() {
     final tasa = double.tryParse(_tasaBcvController.text.replaceAll(',', '.')) ?? _tasaBcv;
-    if (!_isTypingCosto && _costoUnitarioController.text.isNotEmpty) {
+    if (!_isTypingCosto && _costoUnitarioBsController.text.isNotEmpty) {
+      final bs = double.tryParse(_costoUnitarioBsController.text.replaceAll(',', '.'));
+      if (bs != null && tasa > 0) {
+        _costoUnitarioController.text = (bs / tasa).toStringAsFixed(4);
+      }
+    } else if (!_isTypingCosto && _costoUnitarioController.text.isNotEmpty) {
       final usd = double.tryParse(_costoUnitarioController.text.replaceAll(',', '.'));
       if (usd != null && tasa > 0) {
         _costoUnitarioBsController.text = (usd * tasa).toStringAsFixed(2);
@@ -541,14 +549,30 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
 
   void _agregarRenglonAlCarrito() {
     final cant = int.tryParse(_cantidadController.text) ?? 0;
-    final costoUsd = double.tryParse(_costoUnitarioController.text.replaceAll(',', '.')) ?? 0.0;
     final tasa = double.tryParse(_tasaBcvController.text.replaceAll(',', '.')) ?? _tasaBcv;
-    final costoBs = double.tryParse(_costoUnitarioBsController.text.replaceAll(',', '.')) ?? (costoUsd * tasa);
+    final tasaVal = tasa > 0 ? tasa : 1.0;
+
+    double costoBs = double.tryParse(_costoUnitarioBsController.text.replaceAll(',', '.')) ?? 0.0;
+    double costoUsd = double.tryParse(_costoUnitarioController.text.replaceAll(',', '.')) ?? 0.0;
+
+    if (costoBs > 0 && costoUsd == 0) {
+      costoUsd = double.parse((costoBs / tasaVal).toStringAsFixed(4));
+    } else if (costoUsd > 0 && costoBs == 0) {
+      costoBs = double.parse((costoUsd * tasaVal).toStringAsFixed(2));
+    }
+
     final desc = _descripcionItemController.text.trim();
+
+    if (_tipoRenglon == TipoRenglon.producto && _productoRenglonSeleccionado == null && desc.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('⚠️ Debe seleccionar un producto del catálogo o cambiar a Servicio / Gasto'), backgroundColor: Colors.orange)
+      );
+      return;
+    }
 
     if (desc.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('⚠️ Debe especificar una descripción o seleccionar un producto'), backgroundColor: Colors.orange)
+        const SnackBar(content: Text('⚠️ Debe especificar una descripción del renglón'), backgroundColor: Colors.orange)
       );
       return;
     }
@@ -560,28 +584,38 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
       return;
     }
 
-    if (costoUsd < 0) {
+    if (costoBs < 0 || costoUsd < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('⚠️ El costo no puede ser negativo'), backgroundColor: Colors.orange)
       );
       return;
     }
 
-    final subtotalUsd = cant * costoUsd;
-    final nuevoPrecioVenta = double.tryParse(_nuevoPrecioVentaController.text.replaceAll(',', '.'));
+    final subtotalBs = double.parse((cant * costoBs).toStringAsFixed(2));
+    final subtotalUsd = double.parse((cant * costoUsd).toStringAsFixed(2));
+    final nuevoPrecioVenta = _tipoRenglon == TipoRenglon.producto
+        ? double.tryParse(_nuevoPrecioVentaController.text.replaceAll(',', '.'))
+        : null;
 
     setState(() {
       _renglonesCompra.add({
-        'producto_id': _productoRenglonSeleccionado != null ? _productoRenglonSeleccionado!['id'] : null,
-        'codigo_producto': _productoRenglonSeleccionado != null ? _productoRenglonSeleccionado!['codigo_producto'] : 'GASTO/AJUSTE',
+        'producto_id': _tipoRenglon == TipoRenglon.producto && _productoRenglonSeleccionado != null
+            ? _productoRenglonSeleccionado!['id']
+            : null,
+        'codigo_producto': _tipoRenglon == TipoRenglon.producto && _productoRenglonSeleccionado != null
+            ? _productoRenglonSeleccionado!['codigo_producto']
+            : 'SERVICIO/GASTO',
         'descripcion': desc,
         'cantidad': cant,
-        'costo_unitario_usd': costoUsd,
         'costo_unitario_bs': costoBs,
+        'costo_unitario_usd': costoUsd,
         'aplica_iva': _itemAplicaIva,
+        'subtotal_bs': subtotalBs,
         'subtotal_usd': subtotalUsd,
         'nuevo_precio_usd': nuevoPrecioVenta,
-        'precio_venta_actual': _productoRenglonSeleccionado != null ? (double.tryParse(_productoRenglonSeleccionado!['precio_usd'].toString()) ?? 0.0) : null
+        'precio_venta_actual': (_tipoRenglon == TipoRenglon.producto && _productoRenglonSeleccionado != null)
+            ? (double.tryParse(_productoRenglonSeleccionado!['precio_usd'].toString()) ?? 0.0)
+            : null
       });
 
       // Limpiar campos de renglón
@@ -603,71 +637,74 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
   }
 
   // =========================================================================
-  // CÁLCULO DE TOTALES FISCALES Y RETENCIONES
+  // CÁLCULO DE TOTALES FISCALES Y RETENCIONES (BASE EN BOLÍVARES)
   // =========================================================================
   Map<String, double> _calcularTotalesCompra() {
-    double exentoUsd = 0.0;
-    double baseUsd = 0.0;
-    double ivaUsd = 0.0;
+    double exentoBs = 0.0;
+    double baseBs = 0.0;
     double tasa = double.tryParse(_tasaBcvController.text.replaceAll(',', '.')) ?? _tasaBcv;
     if (tasa <= 0) tasa = 1.0;
 
     for (final item in _renglonesCompra) {
-      final sub = (item['subtotal_usd'] as num).toDouble();
+      final double subBs = (item['subtotal_bs'] as num?)?.toDouble() ?? 
+          (((item['subtotal_usd'] as num?)?.toDouble() ?? 0.0) * tasa);
       final llevaIva = item['aplica_iva'] == true;
 
       if (llevaIva) {
-        baseUsd += sub;
-        ivaUsd += sub * 0.16;
+        baseBs += subBs;
       } else {
-        exentoUsd += sub;
+        exentoBs += subBs;
       }
     }
 
-    final totalUsd = exentoUsd + baseUsd + ivaUsd;
-    final totalBs = totalUsd * tasa;
-    final exentoBs = exentoUsd * tasa;
-    final baseBs = baseUsd * tasa;
-    final ivaBs = ivaUsd * tasa;
+    baseBs = double.parse(baseBs.toStringAsFixed(2));
+    exentoBs = double.parse(exentoBs.toStringAsFixed(2));
 
-    // Retención de IVA (75% o 100%)
-    double ivaRetenidoUsd = 0.0;
+    final ivaBs = double.parse((baseBs * 0.16).toStringAsFixed(2));
+    final totalBs = double.parse((baseBs + exentoBs + ivaBs).toStringAsFixed(2));
+
+    // Retención de IVA (75% o 100%) calculada en Bs
     double ivaRetenidoBs = 0.0;
-    if (_aplicaRetencionIva && ivaUsd > 0) {
+    if (_aplicaRetencionIva && ivaBs > 0) {
       final factorIva = _porcentajeRetIva / 100.0;
-      ivaRetenidoUsd = ivaUsd * factorIva;
-      ivaRetenidoBs = ivaBs * factorIva;
+      ivaRetenidoBs = double.parse((ivaBs * factorIva).toStringAsFixed(2));
     }
 
-    // Retención de ISLR
+    // Retención de ISLR calculada directamente en Bs (sin sustraendo manual)
     double islrRetenidoBs = 0.0;
-    double islrRetenidoUsd = 0.0;
     if (_aplicaRetencionIslr && baseBs > 0) {
       final porcIslr = double.tryParse(_porcentajeRetIslrController.text.replaceAll(',', '.')) ?? 0.0;
-      final sustraendo = double.tryParse(_sustraendoIslrBsController.text.replaceAll(',', '.')) ?? 0.0;
-      islrRetenidoBs = (baseBs * (porcIslr / 100.0)) - sustraendo;
+      islrRetenidoBs = double.parse((baseBs * (porcIslr / 100.0)).toStringAsFixed(2));
       if (islrRetenidoBs < 0) islrRetenidoBs = 0.0;
-      islrRetenidoUsd = islrRetenidoBs / tasa;
     }
 
-    final netoPagarUsd = math.max(0.0, totalUsd - ivaRetenidoUsd - islrRetenidoUsd);
-    final netoPagarBs = math.max(0.0, totalBs - ivaRetenidoBs - islrRetenidoBs);
+    final netoPagarBs = math.max(0.0, double.parse((totalBs - ivaRetenidoBs - islrRetenidoBs).toStringAsFixed(2)));
+
+    // Totales en Dólares (Solo Referencia contable dividida por tasa BCV)
+    final exentoUsd = double.parse((exentoBs / tasa).toStringAsFixed(2));
+    final baseUsd = double.parse((baseBs / tasa).toStringAsFixed(2));
+    final ivaUsd = double.parse((ivaBs / tasa).toStringAsFixed(2));
+    final totalUsd = double.parse((totalBs / tasa).toStringAsFixed(2));
+    final ivaRetenidoUsd = double.parse((ivaRetenidoBs / tasa).toStringAsFixed(2));
+    final islrRetenidoUsd = double.parse((islrRetenidoBs / tasa).toStringAsFixed(2));
+    final netoPagarUsd = double.parse((netoPagarBs / tasa).toStringAsFixed(2));
 
     return {
+      'exento_bs': exentoBs,
+      'base_bs': baseBs,
+      'iva_bs': ivaBs,
+      'total_bs': totalBs,
+      'iva_retenido_bs': ivaRetenidoBs,
+      'islr_retenido_bs': islrRetenidoBs,
+      'neto_pagar_bs': netoPagarBs,
+
       'exento_usd': exentoUsd,
       'base_usd': baseUsd,
       'iva_usd': ivaUsd,
       'total_usd': totalUsd,
-      'total_bs': totalBs,
-      'exento_bs': exentoBs,
-      'base_bs': baseBs,
-      'iva_bs': ivaBs,
       'iva_retenido_usd': ivaRetenidoUsd,
-      'iva_retenido_bs': ivaRetenidoBs,
       'islr_retenido_usd': islrRetenidoUsd,
-      'islr_retenido_bs': islrRetenidoBs,
       'neto_pagar_usd': netoPagarUsd,
-      'neto_pagar_bs': netoPagarBs,
     };
   }
 
@@ -759,11 +796,14 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
         "fecha_emision": DateFormat('yyyy-MM-dd').format(_fechaEmision),
         "fecha_recepcion": DateTime.now().toIso8601String(),
         "tasa_bcv": tasa,
+        "monto_exento_bs": totales['exento_bs'],
+        "base_imponible_bs": totales['base_bs'],
+        "iva_bs": totales['iva_bs'],
+        "total_bs": totales['total_bs'],
         "monto_exento_usd": totales['exento_usd'],
         "base_imponible_usd": totales['base_usd'],
         "iva_usd": totales['iva_usd'],
         "total_usd": totales['total_usd'],
-        "total_bs": totales['total_bs'],
         "dias_credito": (_metodoPago == 'Crédito' || diasCred > 0) ? diasCred : 0,
         "metodo_pago": _metodoPago,
 
@@ -777,7 +817,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
         "codigo_concepto_islr": _aplicaRetencionIslr ? _codigoConceptoIslrController.text.trim() : null,
         "concepto_islr": _aplicaRetencionIslr ? _conceptoIslrController.text.trim() : null,
         "porcentaje_ret_islr": _aplicaRetencionIslr ? (double.tryParse(_porcentajeRetIslrController.text.replaceAll(',', '.')) ?? 0.0) : 0,
-        "sustraendo_islr_bs": _aplicaRetencionIslr ? (double.tryParse(_sustraendoIslrBsController.text.replaceAll(',', '.')) ?? 0.0) : 0,
+        "sustraendo_islr_bs": 0.0,
         "islr_retenido_usd": totales['islr_retenido_usd'],
         "islr_retenido_bs": totales['islr_retenido_bs'],
 
@@ -788,8 +828,10 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
           "producto_id": item['producto_id'],
           "descripcion": item['descripcion'],
           "cantidad": item['cantidad'],
+          "costo_unitario_bs": item['costo_unitario_bs'],
           "costo_unitario_usd": item['costo_unitario_usd'],
           "aplica_iva": item['aplica_iva'],
+          "subtotal_bs": item['subtotal_bs'],
           "subtotal_usd": item['subtotal_usd'],
           "nuevo_precio_usd": item['nuevo_precio_usd']
         }).toList()
@@ -1101,9 +1143,12 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
         final mult = esNC ? -1.0 : 1.0;
         final tasa = (double.tryParse(c['tasa_bcv'].toString()) ?? 1.0);
 
-        final exBs = (double.tryParse(c['monto_exento_usd'].toString()) ?? 0.0) * tasa * mult;
-        final bBs = (double.tryParse(c['base_imponible_usd'].toString()) ?? 0.0) * tasa * mult;
-        final iBs = (double.tryParse(c['iva_usd'].toString()) ?? 0.0) * tasa * mult;
+        final exBs = (double.tryParse(c['monto_exento_bs']?.toString() ?? '') ??
+            ((double.tryParse(c['monto_exento_usd']?.toString() ?? '') ?? 0.0) * tasa)) * mult;
+        final bBs = (double.tryParse(c['base_imponible_bs']?.toString() ?? '') ??
+            ((double.tryParse(c['base_imponible_usd']?.toString() ?? '') ?? 0.0) * tasa)) * mult;
+        final iBs = (double.tryParse(c['iva_bs']?.toString() ?? '') ??
+            ((double.tryParse(c['iva_usd']?.toString() ?? '') ?? 0.0) * tasa)) * mult;
         final tBs = (double.tryParse(c['total_bs'].toString()) ?? 0.0) * mult;
         final irBs = (double.tryParse(c['iva_retenido_bs'].toString()) ?? 0.0) * mult;
         final isBs = (double.tryParse(c['islr_retenido_bs'].toString()) ?? 0.0) * mult;
@@ -1178,9 +1223,12 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
               final mult = esNC ? -1.0 : 1.0;
               final tasa = (double.tryParse(c['tasa_bcv'].toString()) ?? 1.0);
 
-              double exBs = (double.tryParse(c['monto_exento_usd'].toString()) ?? 0.0) * tasa * mult;
-              double bBs = (double.tryParse(c['base_imponible_usd'].toString()) ?? 0.0) * tasa * mult;
-              double iBs = (double.tryParse(c['iva_usd'].toString()) ?? 0.0) * tasa * mult;
+              double exBs = (double.tryParse(c['monto_exento_bs']?.toString() ?? '') ??
+                  ((double.tryParse(c['monto_exento_usd']?.toString() ?? '') ?? 0.0) * tasa)) * mult;
+              double bBs = (double.tryParse(c['base_imponible_bs']?.toString() ?? '') ??
+                  ((double.tryParse(c['base_imponible_usd']?.toString() ?? '') ?? 0.0) * tasa)) * mult;
+              double iBs = (double.tryParse(c['iva_bs']?.toString() ?? '') ??
+                  ((double.tryParse(c['iva_usd']?.toString() ?? '') ?? 0.0) * tasa)) * mult;
               double tBs = (double.tryParse(c['total_bs'].toString()) ?? 0.0) * mult;
               double irBs = (double.tryParse(c['iva_retenido_bs'].toString()) ?? 0.0) * mult;
               double isBs = (double.tryParse(c['islr_retenido_bs'].toString()) ?? 0.0) * mult;
@@ -1270,18 +1318,71 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
   // =========================================================================
   // IMPRESIÓN OFICIAL DE COMPROBANTES DE RETENCIÓN (PDF)
   // =========================================================================
+  String _formatearMontoBs(double monto) {
+    final partes = monto.toStringAsFixed(2).split('.');
+    final entero = partes[0].replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => '.',
+    );
+    return '$entero,${partes[1]}';
+  }
+
+  pw.Widget _buildCellComprobante(
+    String texto, {
+    bool isHeader = false,
+    bool isBold = false,
+    pw.Alignment alignment = pw.Alignment.centerLeft,
+    double? fontSize,
+  }) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 2.5, vertical: 3.5),
+      alignment: alignment,
+      child: pw.Text(
+        texto,
+        textAlign: alignment == pw.Alignment.centerRight
+            ? pw.TextAlign.right
+            : alignment == pw.Alignment.center
+                ? pw.TextAlign.center
+                : pw.TextAlign.left,
+        style: pw.TextStyle(
+          fontSize: fontSize ?? (isHeader ? 7.2 : 7.5),
+          fontWeight: (isHeader || isBold) ? pw.FontWeight.bold : pw.FontWeight.normal,
+        ),
+      ),
+    );
+  }
+
   Future<void> _imprimirComprobanteRetIva(Map<String, dynamic> compra) async {
     final pdf = pw.Document();
     final prov = compra['Proveedor'];
     final tasa = double.tryParse(compra['tasa_bcv'].toString()) ?? 1.0;
-    final fechaDoc = DateTime.tryParse(compra['fecha_emision']) ?? DateTime.now();
+    final fechaDoc = DateTime.tryParse(compra['fecha_emision']?.toString().split('T')[0] ?? '') ?? DateTime.now();
 
-    final baseBs = (double.tryParse(compra['base_imponible_usd'].toString()) ?? 0.0) * tasa;
-    final exentoBs = (double.tryParse(compra['monto_exento_usd'].toString()) ?? 0.0) * tasa;
-    final ivaBs = (double.tryParse(compra['iva_usd'].toString()) ?? 0.0) * tasa;
-    final totalBs = (double.tryParse(compra['total_bs'].toString()) ?? (baseBs + exentoBs + ivaBs));
+    final baseBs = double.tryParse(compra['base_imponible_bs']?.toString() ?? '') ??
+        ((double.tryParse(compra['base_imponible_usd']?.toString() ?? '') ?? 0.0) * tasa);
+    final exentoBs = double.tryParse(compra['monto_exento_bs']?.toString() ?? '') ??
+        ((double.tryParse(compra['monto_exento_usd']?.toString() ?? '') ?? 0.0) * tasa);
+    final ivaBs = double.tryParse(compra['iva_bs']?.toString() ?? '') ??
+        ((double.tryParse(compra['iva_usd']?.toString() ?? '') ?? 0.0) * tasa);
+    final calcTotalBs = double.tryParse(compra['total_bs']?.toString() ?? '') ?? 0.0;
+    final totalBs = calcTotalBs > 0 ? calcTotalBs : (baseBs + exentoBs + ivaBs);
     final ivaRetBs = double.tryParse(compra['iva_retenido_bs'].toString()) ?? 0.0;
-    final porcRet = compra['porcentaje_ret_iva'] ?? 75;
+    final totalNetoPagado = totalBs - ivaRetBs;
+
+    // Formateo de fecha del documento
+    String fechaDocStr = DateFormat('dd/MM/yyyy').format(fechaDoc);
+
+    // Tipo de Transacción
+    final tipoDoc = (compra['tipo_documento_fiscal'] ?? 'FACTURA').toString().toUpperCase();
+    String tipoTransaccion = '01- Reg';
+    if (tipoDoc.contains('DEBITO') || tipoDoc == '02' || tipoDoc == 'ND') {
+      tipoTransaccion = '02- Comp';
+    } else if (tipoDoc.contains('CREDITO') || tipoDoc == '03' || tipoDoc == 'NC') {
+      tipoTransaccion = '03- Anul';
+    }
+
+    final numFactura = (compra['numero_factura'] ?? '').toString();
+    final numControl = (compra['numero_control'] ?? '').toString();
 
     pdf.addPage(
       pw.Page(
@@ -1290,14 +1391,17 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
         build: (pw.Context context) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            // Membrete Agente de Retención
+            // Membrete Agente de Retención (Conservado intacto)
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text(agenteRetencion['razon_social']!, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                    pw.Text(
+                      agenteRetencion['razon_social']!,
+                      style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900),
+                    ),
                     pw.Text('RIF: ${agenteRetencion['rif']}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
                     pw.SizedBox(height: 2),
                     pw.SizedBox(
@@ -1331,7 +1435,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
             pw.Text('(Ley IVA - Art. 11 / Providencia Administrativa SENIAT N° SNAT/2015/0049)', style: const pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700)),
             pw.SizedBox(height: 12),
 
-            // Cuadro Sujeto Retenido (Proveedor)
+            // Cuadro Sujeto Retenido / Beneficiario (Conservado intacto)
             pw.Container(
               padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(
@@ -1379,67 +1483,135 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
             ),
             pw.SizedBox(height: 14),
 
-            // Tabla de Detalle Fiscal
-            pw.TableHelper.fromTextArray(
-              headers: [
-                'N° Oper.',
-                'Fecha Doc.',
-                'N° Factura',
-                'N° Control',
-                'Fact. Afectada',
-                'Total con IVA (Bs)',
-                'Compras Exentas (Bs)',
-                'Base Imponible (Bs)',
-                '% Alícuota',
-                'Impuesto IVA (Bs)',
-                '% Ret.',
-                'IVA Retenido (Bs)'
-              ],
-              data: [
-                [
-                  '1',
-                  compra['fecha_emision'] ?? '',
-                  compra['numero_factura'] ?? '',
-                  compra['numero_control'] ?? '',
-                  compra['factura_afectada'] ?? '-',
-                  totalBs.toStringAsFixed(2),
-                  exentoBs.toStringAsFixed(2),
-                  baseBs.toStringAsFixed(2),
-                  '16%',
-                  ivaBs.toStringAsFixed(2),
-                  '$porcRet%',
-                  ivaRetBs.toStringAsFixed(2)
-                ]
-              ],
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8, color: PdfColors.white),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.blue800),
-              cellStyle: const pw.TextStyle(fontSize: 8.5),
-              cellAlignment: pw.Alignment.center,
-              cellAlignments: {
-                5: pw.Alignment.centerRight,
-                6: pw.Alignment.centerRight,
-                7: pw.Alignment.centerRight,
-                9: pw.Alignment.centerRight,
-                11: pw.Alignment.centerRight,
-              },
-            ),
-            pw.SizedBox(height: 10),
-
-            // Fila de Total Retenido
+            // Super-Encabezado Superior (agrupado sobre columnas 6, 7, 8 y 9)
             pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.end,
               children: [
+                pw.SizedBox(width: 445), // columnas 0..5 (60 + 90 + 75 + 60 + 80 + 80)
                 pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: pw.BoxDecoration(color: PdfColors.grey200, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+                  width: 201, // columnas 6..8 (78 + 45 + 78)
+                  height: 18,
+                  alignment: pw.Alignment.center,
+                  decoration: const pw.BoxDecoration(
+                    color: PdfColors.grey300,
+                    border: pw.Border(
+                      top: pw.BorderSide(color: PdfColors.black, width: 0.5),
+                      left: pw.BorderSide(color: PdfColors.black, width: 0.5),
+                      right: pw.BorderSide(color: PdfColors.black, width: 0.5),
+                    ),
+                  ),
+                  child: pw.Text(
+                    'Compras Internas o IMPORTACIONES',
+                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold),
+                  ),
+                ),
+                pw.Container(
+                  width: 82, // columna 9
+                  height: 18,
+                  decoration: const pw.BoxDecoration(
+                    color: PdfColors.grey300,
+                    border: pw.Border(
+                      top: pw.BorderSide(color: PdfColors.black, width: 0.5),
+                      right: pw.BorderSide(color: PdfColors.black, width: 0.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Tabla Principal de Retención de I.V.A. (10 Columnas)
+            pw.Table(
+              border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
+              defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+              columnWidths: const {
+                0: pw.FixedColumnWidth(60), // Fecha del Documento
+                1: pw.FixedColumnWidth(90), // Número del Documento
+                2: pw.FixedColumnWidth(75), // Núm. Control del Documento
+                3: pw.FixedColumnWidth(60), // Tipo de Transacción
+                4: pw.FixedColumnWidth(80), // Total compras Incluyendo IVA
+                5: pw.FixedColumnWidth(80), // Compras sin Derecho a Crédito IVA
+                6: pw.FixedColumnWidth(78), // Base Imponible
+                7: pw.FixedColumnWidth(45), // Alícuota %
+                8: pw.FixedColumnWidth(78), // Impuesto IVA
+                9: pw.FixedColumnWidth(82), // IVA Retenido
+              },
+              children: [
+                // Cabecera Principal
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+                  children: [
+                    _buildCellComprobante('Fecha del\nDocumento', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Número del Documento', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Núm. Control del\nDocumento', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Tipo de\nTransación', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Total compras\nIncluyendo IVA', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Compras sin Derecho a\nCrédito IVA', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Base Imponible', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Alicuota\n%', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Impuesto IVA', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('IVA Retenido', isHeader: true, alignment: pw.Alignment.center),
+                  ],
+                ),
+                // Fila de Datos
+                pw.TableRow(
+                  children: [
+                    _buildCellComprobante(fechaDocStr, alignment: pw.Alignment.center),
+                    _buildCellComprobante(numFactura, alignment: pw.Alignment.center),
+                    _buildCellComprobante(numControl, alignment: pw.Alignment.center),
+                    _buildCellComprobante(tipoTransaccion, alignment: pw.Alignment.center),
+                    _buildCellComprobante(_formatearMontoBs(totalBs), alignment: pw.Alignment.centerRight),
+                    _buildCellComprobante(_formatearMontoBs(exentoBs), alignment: pw.Alignment.centerRight),
+                    _buildCellComprobante(_formatearMontoBs(baseBs), alignment: pw.Alignment.centerRight),
+                    _buildCellComprobante('16%', alignment: pw.Alignment.center),
+                    _buildCellComprobante(_formatearMontoBs(ivaBs), alignment: pw.Alignment.centerRight),
+                    _buildCellComprobante(_formatearMontoBs(ivaRetBs), alignment: pw.Alignment.centerRight),
+                  ],
+                ),
+                // Fila de Totales Integrada
+                pw.TableRow(
+                  children: [
+                    _buildCellComprobante('', alignment: pw.Alignment.center),
+                    _buildCellComprobante('', alignment: pw.Alignment.center),
+                    _buildCellComprobante('', alignment: pw.Alignment.center),
+                    _buildCellComprobante('Total', isBold: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante(_formatearMontoBs(totalBs), isBold: true, alignment: pw.Alignment.centerRight),
+                    _buildCellComprobante(_formatearMontoBs(exentoBs), isBold: true, alignment: pw.Alignment.centerRight),
+                    _buildCellComprobante(_formatearMontoBs(baseBs), isBold: true, alignment: pw.Alignment.centerRight),
+                    _buildCellComprobante('', alignment: pw.Alignment.center),
+                    _buildCellComprobante(_formatearMontoBs(ivaBs), isBold: true, alignment: pw.Alignment.centerRight),
+                    _buildCellComprobante(_formatearMontoBs(ivaRetBs), isBold: true, alignment: pw.Alignment.centerRight),
+                  ],
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 12),
+
+            // Recuadro Inferior "TOTAL PAGADO" (alineado a la derecha, ancho de cols 6..9)
+            pw.Row(
+              children: [
+                pw.SizedBox(width: 445), // columnas 0..5
+                pw.Container(
+                  width: 283, // columnas 6..9 (78 + 45 + 78 + 82)
+                  height: 22,
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 10),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.grey300,
+                    border: pw.Border.all(color: PdfColors.black, width: 0.5),
+                  ),
                   child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
-                      pw.Text('TOTAL IVA RETENIDO:  ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                      pw.Text('Bs ${ivaRetBs.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13, color: PdfColors.blue900)),
-                    ]
-                  )
-                )
-              ]
+                      pw.Text(
+                        'TOTAL PAGADO',
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5),
+                      ),
+                      pw.Text(
+                        _formatearMontoBs(totalNetoPagado),
+                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             pw.Spacer(),
 
@@ -1449,7 +1621,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
               children: [
                 pw.Container(
                   width: 300,
-                  height: 90,
+                  height: 80,
                   padding: const pw.EdgeInsets.all(8),
                   decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey600)),
                   child: pw.Column(
@@ -1462,7 +1634,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                 ),
                 pw.Container(
                   width: 300,
-                  height: 90,
+                  height: 80,
                   padding: const pw.EdgeInsets.all(8),
                   decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey600)),
                   child: pw.Column(
@@ -1490,38 +1662,74 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
     final pdf = pw.Document();
     final prov = compra['Proveedor'];
     final tasa = double.tryParse(compra['tasa_bcv'].toString()) ?? 1.0;
-    final fechaDoc = DateTime.tryParse(compra['fecha_emision']) ?? DateTime.now();
+    final fEmision = DateTime.tryParse(compra['fecha_emision']?.toString().split('T')[0] ?? '') ?? DateTime.now();
+    final fRecepcion = DateTime.tryParse(compra['fecha_recepcion']?.toString().split('T')[0] ?? '');
+    final fRetencion = DateTime.tryParse(compra['createdAt']?.toString().split('T')[0] ?? '') ?? DateTime.now();
 
-    final baseBs = (double.tryParse(compra['base_imponible_usd'].toString()) ?? 0.0) * tasa;
+    final baseBs = double.tryParse(compra['base_imponible_bs']?.toString() ?? '') ??
+        ((double.tryParse(compra['base_imponible_usd']?.toString() ?? '') ?? 0.0) * tasa);
     final islrRetBs = double.tryParse(compra['islr_retenido_bs'].toString()) ?? 0.0;
     final porcRet = compra['porcentaje_ret_islr'] ?? 0;
-    final sustraendo = double.tryParse(compra['sustraendo_islr_bs'].toString()) ?? 0.0;
+
+    // Fechas formateadas
+    final fechaFacturaStr = DateFormat('dd/MM/yyyy').format(fEmision);
+    final fechaPagoStr = DateFormat('dd/MM/yyyy').format(fRecepcion ?? fEmision);
+    final fechaRetencionStr = DateFormat('dd/MM/yyyy').format(fRecepcion ?? fRetencion);
+
+    // Tipos de documento
+    final tipoDoc = (compra['tipo_documento_fiscal'] ?? 'FACTURA').toString().toUpperCase();
+    final esFactura = tipoDoc == 'FACTURA' || tipoDoc == 'FAC';
+    final esND = tipoDoc.contains('DEBITO') || tipoDoc == 'ND';
+    final esNC = tipoDoc.contains('CREDITO') || tipoDoc == 'NC';
+
+    final numFactura = esFactura ? (compra['numero_factura'] ?? '') : '-';
+    final numControl = (compra['numero_control'] ?? '').toString();
+    final numND = esND ? (compra['numero_factura'] ?? '-') : '-';
+    final numNC = esNC ? (compra['numero_factura'] ?? '-') : '-';
+
+    // Tarifa
+    String tarifaRetStr = '$porcRet%';
+    if (porcRet is num) {
+      if (porcRet == porcRet.toInt()) {
+        tarifaRetStr = '${porcRet.toInt()}%';
+      } else {
+        tarifaRetStr = '${porcRet.toStringAsFixed(2)}%';
+      }
+    }
+
+    // Concepto
+    final conceptoIslr = (compra['concepto_islr'] != null && compra['concepto_islr'].toString().isNotEmpty)
+        ? compra['concepto_islr'].toString()
+        : 'Ejecución de obras y prestación de servicios en Venezuela pagadas a:';
 
     pdf.addPage(
       pw.Page(
-        pageFormat: PdfPageFormat.letter,
-        margin: const pw.EdgeInsets.all(36),
+        pageFormat: PdfPageFormat.letter.landscape,
+        margin: const pw.EdgeInsets.all(32),
         build: (pw.Context context) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            // Membrete
+            // Membrete Agente de Retención (Conservado intacto)
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text(agenteRetencion['razon_social']!, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                    pw.Text(
+                      agenteRetencion['razon_social']!,
+                      style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900),
+                    ),
                     pw.Text('RIF: ${agenteRetencion['rif']}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
                     pw.SizedBox(height: 2),
                     pw.SizedBox(
-                      width: 320,
+                      width: 450,
                       child: pw.Text('Dirección: ${agenteRetencion['direccion']}', style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey700)),
                     )
                   ]
                 ),
                 pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: pw.BoxDecoration(
                     border: pw.Border.all(color: PdfColors.blue900, width: 1.5),
                     borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
@@ -1535,7 +1743,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                       pw.Text('N°: ${compra['comprobante_ret_islr'] ?? 'S/N'}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.red900)),
                       pw.SizedBox(height: 2),
                       pw.Text('Fecha: ${DateFormat('dd/MM/yyyy').format(DateTime.now())}', style: const pw.TextStyle(fontSize: 9)),
-                      pw.Text('Período: ${fechaDoc.year} / ${fechaDoc.month.toString().padLeft(2, '0')}', style: const pw.TextStyle(fontSize: 9)),
+                      pw.Text('Período: ${fEmision.year} / ${fEmision.month.toString().padLeft(2, '0')}', style: const pw.TextStyle(fontSize: 9)),
                     ]
                   )
                 )
@@ -1543,9 +1751,9 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
             ),
             pw.SizedBox(height: 8),
             pw.Text('(Decreto N° 1808 / Reglamento de Retenciones de la Ley de Impuesto Sobre la Renta)', style: const pw.TextStyle(fontSize: 8, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700)),
-            pw.SizedBox(height: 16),
+            pw.SizedBox(height: 12),
 
-            // Beneficiario
+            // Beneficiario / Sujeto Retenido (Conservado intacto)
             pw.Container(
               padding: const pw.EdgeInsets.all(10),
               decoration: pw.BoxDecoration(
@@ -1570,60 +1778,111 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                 ],
               )
             ),
-            pw.SizedBox(height: 16),
+            pw.SizedBox(height: 14),
 
-            // Detalle de la Retención
-            pw.TableHelper.fromTextArray(
-              headers: [
-                'Concepto de Pago',
-                'Cód. SENIAT',
-                'N° Factura',
-                'N° Control',
-                'Base Imponible (Bs)',
-                '% Ret.',
-                'Sustraendo (Bs)',
-                'ISLR Retenido (Bs)'
-              ],
-              data: [
-                [
-                  compra['concepto_islr'] ?? 'Fletes y Servicios',
-                  compra['codigo_concepto_islr'] ?? '053',
-                  compra['numero_factura'] ?? '',
-                  compra['numero_control'] ?? '',
-                  baseBs.toStringAsFixed(2),
-                  '$porcRet%',
-                  sustraendo.toStringAsFixed(2),
-                  islrRetBs.toStringAsFixed(2)
-                ]
-              ],
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5, color: PdfColors.white),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.blue800),
-              cellStyle: const pw.TextStyle(fontSize: 9),
-              cellAlignment: pw.Alignment.center,
-              cellAlignments: {
-                0: pw.Alignment.centerLeft,
-                4: pw.Alignment.centerRight,
-                6: pw.Alignment.centerRight,
-                7: pw.Alignment.centerRight,
+            // Tabla Principal de Retención de I.S.L.R. (11 Columnas)
+            pw.Table(
+              border: pw.TableBorder.all(color: PdfColors.black, width: 0.5),
+              defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
+              columnWidths: const {
+                0: pw.FixedColumnWidth(54),  // Fecha de la Factura
+                1: pw.FixedColumnWidth(88),  // Nro. Factura
+                2: pw.FixedColumnWidth(66),  // Nro. Control
+                3: pw.FixedColumnWidth(50),  // Nro. Nota de Débito
+                4: pw.FixedColumnWidth(50),  // Nro. Nota de Crédito
+                5: pw.FixedColumnWidth(54),  // Fecha Pago de Factura
+                6: pw.FixedColumnWidth(58),  // Fecha de la Retención
+                7: pw.FixedColumnWidth(66),  // Base Imponible
+                8: pw.FixedColumnWidth(44),  // Tarifa de retención
+                9: pw.FixedColumnWidth(138), // Tipo de Actividad
+                10: pw.FixedColumnWidth(60), // Impuesto Retenido
               },
-            ),
-            pw.SizedBox(height: 12),
-
-            // Total
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.end,
               children: [
+                // Cabecera en gris claro
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+                  children: [
+                    _buildCellComprobante('Fecha de la\nFactura', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Nro. Factura', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Nro. Control', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Nro. Nota de\nDébito', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Nro. Nota de\nCrédito', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Fecha Pago de\nFactura', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Fecha de la\nRetención', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Base\nImponible', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Tarifa de\nretención', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Tipo de Actividad', isHeader: true, alignment: pw.Alignment.center),
+                    _buildCellComprobante('Impuesto\nRetenido', isHeader: true, alignment: pw.Alignment.center),
+                  ],
+                ),
+                // Fila de Datos
+                pw.TableRow(
+                  children: [
+                    _buildCellComprobante(fechaFacturaStr, alignment: pw.Alignment.center),
+                    _buildCellComprobante(numFactura, alignment: pw.Alignment.center),
+                    _buildCellComprobante(numControl, alignment: pw.Alignment.center),
+                    _buildCellComprobante(numND, alignment: pw.Alignment.center),
+                    _buildCellComprobante(numNC, alignment: pw.Alignment.center),
+                    _buildCellComprobante(fechaPagoStr, alignment: pw.Alignment.center),
+                    _buildCellComprobante(fechaRetencionStr, alignment: pw.Alignment.center),
+                    _buildCellComprobante(_formatearMontoBs(baseBs), alignment: pw.Alignment.centerRight),
+                    _buildCellComprobante(tarifaRetStr, alignment: pw.Alignment.center),
+                    _buildCellComprobante(conceptoIslr, alignment: pw.Alignment.centerLeft),
+                    _buildCellComprobante(_formatearMontoBs(islrRetBs), alignment: pw.Alignment.centerRight),
+                  ],
+                ),
+              ],
+            ),
+
+            // Barra de "Total General" Inferior (desde columna 6 hasta el borde derecho)
+            pw.Row(
+              children: [
+                pw.SizedBox(width: 362), // columnas 0..5 (54 + 88 + 66 + 50 + 50 + 54 = 362)
                 pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: pw.BoxDecoration(color: PdfColors.grey200, borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
+                  width: 366, // columnas 6..10 (58 + 66 + 44 + 138 + 60 = 366)
+                  height: 20,
+                  decoration: const pw.BoxDecoration(
+                    color: PdfColors.grey300,
+                    border: pw.Border(
+                      left: pw.BorderSide(color: PdfColors.black, width: 0.5),
+                      right: pw.BorderSide(color: PdfColors.black, width: 0.5),
+                      bottom: pw.BorderSide(color: PdfColors.black, width: 0.5),
+                    ),
+                  ),
                   child: pw.Row(
                     children: [
-                      pw.Text('TOTAL ISLR RETENIDO:  ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                      pw.Text('Bs ${islrRetBs.toStringAsFixed(2)}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13, color: PdfColors.blue900)),
-                    ]
-                  )
-                )
-              ]
+                      pw.Container(
+                        width: 58,
+                        alignment: pw.Alignment.centerLeft,
+                        padding: const pw.EdgeInsets.only(left: 4),
+                        child: pw.Text(
+                          'Total General:',
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7.5),
+                        ),
+                      ),
+                      pw.Container(
+                        width: 66,
+                        alignment: pw.Alignment.centerRight,
+                        padding: const pw.EdgeInsets.only(right: 3),
+                        child: pw.Text(
+                          _formatearMontoBs(baseBs),
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7.5),
+                        ),
+                      ),
+                      pw.SizedBox(width: 44 + 138), // columnas 8 y 9
+                      pw.Container(
+                        width: 60,
+                        alignment: pw.Alignment.centerRight,
+                        padding: const pw.EdgeInsets.only(right: 3),
+                        child: pw.Text(
+                          _formatearMontoBs(islrRetBs),
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
             pw.Spacer(),
 
@@ -1632,8 +1891,8 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
                 pw.Container(
-                  width: 240,
-                  height: 90,
+                  width: 300,
+                  height: 80,
                   padding: const pw.EdgeInsets.all(8),
                   decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey600)),
                   child: pw.Column(
@@ -1645,8 +1904,8 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                   )
                 ),
                 pw.Container(
-                  width: 240,
-                  height: 90,
+                  width: 300,
+                  height: 80,
                   padding: const pw.EdgeInsets.all(8),
                   decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey600)),
                   child: pw.Column(
@@ -1784,49 +2043,81 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                           final item = detalles[index];
                           final prod = item['Producto'];
                           final desc = prod != null ? prod['nombre'] : item['descripcion'];
+                          final cant = item['cantidad'] ?? 1;
+                          final tasa = double.tryParse(compra['tasa_bcv'].toString()) ?? 1.0;
+                          final cUsd = double.tryParse(item['costo_unitario_usd']?.toString() ?? '') ?? 0.0;
+                          final cBs = double.tryParse(item['costo_unitario_bs']?.toString() ?? '') ?? (cUsd * tasa);
+                          final subUsd = double.tryParse(item['subtotal_usd']?.toString() ?? '') ?? 0.0;
+                          final subBs = double.tryParse(item['subtotal_bs']?.toString() ?? '') ?? (subUsd * tasa);
+                          final llevaIva = item['aplica_iva'] == true;
+
                           return ListTile(
                             dense: true,
                             leading: CircleAvatar(
                               radius: 14,
-                              backgroundColor: item['aplica_iva'] ? Colors.blue.shade100 : Colors.green.shade100,
+                              backgroundColor: llevaIva ? Colors.blue.shade100 : Colors.green.shade100,
                               child: Text('${index + 1}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                             ),
                             title: Text(desc ?? 'Item sin descripción', style: const TextStyle(fontWeight: FontWeight.w600)),
-                            subtitle: Text('${item['cantidad']} unid. x \$${item['costo_unitario_usd']} | ${item['aplica_iva'] ? 'IVA 16%' : 'Exento'}'),
-                            trailing: Text('\$${item['subtotal_usd']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                            subtitle: Text('$cant unid. x Bs ${_formatearMontoBs(cBs)} (Ref: \$${cUsd.toStringAsFixed(2)}) | ${llevaIva ? 'IVA 16%' : 'Exento'}'),
+                            trailing: Text('Bs ${_formatearMontoBs(subBs)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                           );
                         },
                       ),
 
-                const SizedBox(height: 16),
-                const Divider(),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Exento: \$${compra['monto_exento_usd']}'),
-                    Text('Base 16%: \$${compra['base_imponible_usd']}'),
-                    Text('IVA 16%: \$${compra['iva_usd']}'),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Total Factura: \$${compra['total_usd']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text('Total Factura: Bs ${compra['total_bs']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(6)),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('NETO A PAGAR: \$${compra['neto_pagar_usd'] ?? compra['total_usd']}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.green.shade900)),
-                      Text('NETO A PAGAR: Bs ${compra['neto_pagar_bs'] ?? compra['total_bs']}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.green.shade900)),
-                    ],
-                  ),
+                Builder(
+                  builder: (context) {
+                    final tasaDoc = double.tryParse(compra['tasa_bcv'].toString()) ?? 1.0;
+                    final exentoBs = double.tryParse(compra['monto_exento_bs']?.toString() ?? '') ??
+                        ((double.tryParse(compra['monto_exento_usd']?.toString() ?? '') ?? 0.0) * tasaDoc);
+                    final baseBs = double.tryParse(compra['base_imponible_bs']?.toString() ?? '') ??
+                        ((double.tryParse(compra['base_imponible_usd']?.toString() ?? '') ?? 0.0) * tasaDoc);
+                    final ivaBs = double.tryParse(compra['iva_bs']?.toString() ?? '') ??
+                        ((double.tryParse(compra['iva_usd']?.toString() ?? '') ?? 0.0) * tasaDoc);
+                    final exentoUsd = double.tryParse(compra['monto_exento_usd']?.toString() ?? '') ?? (exentoBs / tasaDoc);
+                    final baseUsd = double.tryParse(compra['base_imponible_usd']?.toString() ?? '') ?? (baseBs / tasaDoc);
+                    final ivaUsd = double.tryParse(compra['iva_usd']?.toString() ?? '') ?? (ivaBs / tasaDoc);
+                    final totalBs = double.tryParse(compra['total_bs']?.toString() ?? '') ?? (baseBs + exentoBs + ivaBs);
+                    final totalUsd = double.tryParse(compra['total_usd']?.toString() ?? '') ?? (totalBs / tasaDoc);
+                    final netoBs = double.tryParse((compra['neto_pagar_bs'] ?? compra['total_bs']).toString()) ?? 0.0;
+                    final netoUsd = double.tryParse((compra['neto_pagar_usd'] ?? compra['total_usd']).toString()) ?? (netoBs / tasaDoc);
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Exento: Bs ${_formatearMontoBs(exentoBs)} (Ref: \$${exentoUsd.toStringAsFixed(2)})'),
+                            Text('Base 16%: Bs ${_formatearMontoBs(baseBs)} (Ref: \$${baseUsd.toStringAsFixed(2)})'),
+                            Text('IVA 16%: Bs ${_formatearMontoBs(ivaBs)} (Ref: \$${ivaUsd.toStringAsFixed(2)})'),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Total Factura: Bs ${_formatearMontoBs(totalBs)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text('(Ref: \$${totalUsd.toStringAsFixed(2)})', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(6)),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('NETO A PAGAR: Bs ${_formatearMontoBs(netoBs)}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.green.shade900)),
+                              Text('(Ref: \$${netoUsd.toStringAsFixed(2)})', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.green.shade900)),
+                            ],
+                          ),
+                        )
+                      ],
+                    );
+                  },
                 )
               ],
             ),
@@ -2166,7 +2457,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Módulo de Compras, Proveedores y Retenciones (SENIAT)', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Módulo de Compras, Proveedores y Retenciones', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
         bottom: TabBar(
           controller: _tabController,
@@ -2334,7 +2625,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                             flex: 3,
                             child: TextField(
                               controller: _numeroControlController,
-                              decoration: const InputDecoration(labelText: 'N° Control SENIAT *', border: OutlineInputBorder(), isDense: true),
+                              decoration: const InputDecoration(labelText: 'N° Control *', border: OutlineInputBorder(), isDense: true),
                             ),
                           ),
                           if (_tipoDocumentoFiscal != 'FACTURA') ...[
@@ -2416,71 +2707,113 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                               Text('2. Carga de Renglones (Mercancía / Gastos)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                             ],
                           ),
-                          ElevatedButton.icon(
-                            onPressed: () async {
-                              await Navigator.push(context, MaterialPageRoute(builder: (context) => const RegistroProductoScreen()));
-                              _cargarDatosIniciales();
-                            },
-                            icon: const Icon(Icons.add_box, size: 18),
-                            label: const Text('Crear Producto Nuevo'),
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
-                          )
+                          if (_tipoRenglon == TipoRenglon.producto)
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                await Navigator.push(context, MaterialPageRoute(builder: (context) => const RegistroProductoScreen()));
+                                _cargarDatosIniciales();
+                              },
+                              icon: const Icon(Icons.add_box, size: 18),
+                              label: const Text('Crear Producto Nuevo'),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal, foregroundColor: Colors.white),
+                            )
                         ],
                       ),
                       const SizedBox(height: 14),
 
-                      // Selector de producto
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: Autocomplete<Map<String, dynamic>>(
-                              displayStringForOption: (item) => '${item['codigo_producto']} - ${item['nombre']} (Stock: ${item['cantidad'] ?? 0})',
-                              optionsBuilder: (TextEditingValue textEditingValue) {
-                                if (textEditingValue.text.isEmpty) {
-                                  return const Iterable<Map<String, dynamic>>.empty();
-                                }
-                                return _productos.cast<Map<String, dynamic>>().where((p) {
-                                  final nom = (p['nombre'] ?? '').toString().toLowerCase();
-                                  final cod = (p['codigo_producto'] ?? '').toString().toLowerCase();
-                                  return nom.contains(textEditingValue.text.toLowerCase()) || cod.contains(textEditingValue.text.toLowerCase());
-                                });
-                              },
-                              onSelected: _seleccionarProductoParaRenglon,
-                              fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-                                return TextField(
-                                  controller: controller,
-                                  focusNode: focusNode,
-                                  onEditingComplete: onEditingComplete,
-                                  decoration: InputDecoration(
-                                    labelText: 'Buscar en Catálogo de Productos',
-                                    hintText: 'Escriba nombre o código...',
-                                    prefixIcon: const Icon(Icons.search),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                    isDense: true,
-                                  ),
-                                );
-                              },
-                            ),
+                      // Selector de Tipo de Renglón: Producto vs Servicio/Gasto
+                      SegmentedButton<TipoRenglon>(
+                        segments: const [
+                          ButtonSegment(
+                            value: TipoRenglon.producto,
+                            icon: Icon(Icons.inventory_2_outlined),
+                            label: Text('📦 Producto (Suma Stock)'),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            flex: 2,
-                            child: TextField(
-                              controller: _descripcionItemController,
-                              decoration: const InputDecoration(
-                                labelText: 'Descripción del Renglón / Concepto *',
-                                border: OutlineInputBorder(),
-                                isDense: true,
-                              ),
-                            ),
+                          ButtonSegment(
+                            value: TipoRenglon.servicio,
+                            icon: Icon(Icons.build_circle_outlined),
+                            label: Text('🛠️ Servicio / Gasto (No mueve Stock)'),
                           ),
                         ],
+                        selected: {_tipoRenglon},
+                        onSelectionChanged: (newSelection) {
+                          setState(() {
+                            _tipoRenglon = newSelection.first;
+                            if (_tipoRenglon == TipoRenglon.servicio) {
+                              _productoRenglonSeleccionado = null;
+                              _searchProductoController.clear();
+                              _nuevoPrecioVentaController.clear();
+                            }
+                          });
+                        },
                       ),
+                      const SizedBox(height: 14),
+
+                      // Campos según tipo de renglón
+                      if (_tipoRenglon == TipoRenglon.producto) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: Autocomplete<Map<String, dynamic>>(
+                                displayStringForOption: (item) => '${item['codigo_producto']} - ${item['nombre']} (Stock: ${item['cantidad'] ?? 0})',
+                                optionsBuilder: (TextEditingValue textEditingValue) {
+                                  if (textEditingValue.text.isEmpty) {
+                                    return const Iterable<Map<String, dynamic>>.empty();
+                                  }
+                                  return _productos.cast<Map<String, dynamic>>().where((p) {
+                                    final nom = (p['nombre'] ?? '').toString().toLowerCase();
+                                    final cod = (p['codigo_producto'] ?? '').toString().toLowerCase();
+                                    return nom.contains(textEditingValue.text.toLowerCase()) || cod.contains(textEditingValue.text.toLowerCase());
+                                  });
+                                },
+                                onSelected: _seleccionarProductoParaRenglon,
+                                fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+                                  return TextField(
+                                    controller: controller,
+                                    focusNode: focusNode,
+                                    onEditingComplete: onEditingComplete,
+                                    decoration: InputDecoration(
+                                      labelText: 'Buscar en Catálogo de Productos',
+                                      hintText: 'Escriba nombre o código...',
+                                      prefixIcon: const Icon(Icons.search),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      isDense: true,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 2,
+                              child: TextField(
+                                controller: _descripcionItemController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Descripción del Renglón *',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        TextField(
+                          controller: _descripcionItemController,
+                          decoration: const InputDecoration(
+                            labelText: 'Descripción del Servicio o Gasto *',
+                            hintText: 'Ej: Internet fibra óptica mes Octubre, Flete de materiales, Electricidad, Mantenimiento...',
+                            prefixIcon: Icon(Icons.description_outlined),
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ],
 
                       const SizedBox(height: 12),
 
-                      // Cantidad, Costo Unit. ($), Costo Unit. (Bs), IVA y Alerta
+                      // Cantidad, Costo Unit. (Bs)* primero, Ref. Unit. ($) segundo, IVA y Nuevo P. Venta
                       Wrap(
                         spacing: 14,
                         runSpacing: 12,
@@ -2495,21 +2828,21 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                             ),
                           ),
                           SizedBox(
-                            width: 145,
-                            child: TextField(
-                              controller: _costoUnitarioController,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              decoration: const InputDecoration(labelText: 'Costo Unit. (\$)*', prefixText: '\$ ', border: OutlineInputBorder(), isDense: true),
-                              onChanged: _onCostoUsdChanged,
-                            ),
-                          ),
-                          SizedBox(
-                            width: 155,
+                            width: 165,
                             child: TextField(
                               controller: _costoUnitarioBsController,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
                               decoration: const InputDecoration(labelText: 'Costo Unit. (Bs)*', prefixText: 'Bs ', border: OutlineInputBorder(), isDense: true),
                               onChanged: _onCostoBsChanged,
+                            ),
+                          ),
+                          SizedBox(
+                            width: 145,
+                            child: TextField(
+                              controller: _costoUnitarioController,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: const InputDecoration(labelText: 'Ref. Unit. (\$)', prefixText: '\$ ', border: OutlineInputBorder(), isDense: true),
+                              onChanged: _onCostoUsdChanged,
                             ),
                           ),
                           Row(
@@ -2523,7 +2856,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                               const Text('Aplica IVA (16%)', style: TextStyle(fontWeight: FontWeight.w600)),
                             ],
                           ),
-                          if (_productoRenglonSeleccionado != null) ...[
+                          if (_tipoRenglon == TipoRenglon.producto && _productoRenglonSeleccionado != null) ...[
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                               decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.amber.shade300)),
@@ -2556,7 +2889,8 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                         ],
                       ),
 
-                      if (_productoRenglonSeleccionado != null &&
+                      if (_tipoRenglon == TipoRenglon.producto &&
+                          _productoRenglonSeleccionado != null &&
                           _costoUnitarioController.text.isNotEmpty &&
                           (double.tryParse(_costoUnitarioController.text.replaceAll(',', '.')) ?? 0) >= (double.tryParse(_productoRenglonSeleccionado!['precio_usd'].toString()) ?? 0)) ...[
                         const SizedBox(height: 10),
@@ -2604,35 +2938,47 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                                           DataColumn(label: Text('Item', style: TextStyle(fontWeight: FontWeight.bold))),
                                           DataColumn(label: Text('Descripción', style: TextStyle(fontWeight: FontWeight.bold))),
                                           DataColumn(label: Text('Cant.', style: TextStyle(fontWeight: FontWeight.bold))),
-                                          DataColumn(label: Text('Costo Unit. (\$)', style: TextStyle(fontWeight: FontWeight.bold))),
                                           DataColumn(label: Text('Costo Unit. (Bs)', style: TextStyle(fontWeight: FontWeight.bold))),
+                                          DataColumn(label: Text('Ref. Unit. (\$)', style: TextStyle(fontWeight: FontWeight.bold))),
                                           DataColumn(label: Text('IVA 16%', style: TextStyle(fontWeight: FontWeight.bold))),
-                                          DataColumn(label: Text('Subtotal (\$)', style: TextStyle(fontWeight: FontWeight.bold))),
                                           DataColumn(label: Text('Subtotal (Bs)', style: TextStyle(fontWeight: FontWeight.bold))),
+                                          DataColumn(label: Text('Subtotal (\$)', style: TextStyle(fontWeight: FontWeight.bold))),
                                           DataColumn(label: Text('Nuevo P. Venta', style: TextStyle(fontWeight: FontWeight.bold))),
                                           DataColumn(label: Text('Eliminar', style: TextStyle(fontWeight: FontWeight.bold))),
                                         ],
                                         rows: _renglonesCompra.asMap().entries.map((entry) {
                                           final idx = entry.key;
                                           final item = entry.value;
-                                          final tasa = double.tryParse(_tasaBcvController.text.replaceAll(',', '.')) ?? _tasaBcv;
-                                          final subBs = (item['subtotal_usd'] as double) * tasa;
-                                          final cBs = (item['costo_unitario_usd'] as double) * tasa;
+                                          final cBs = (item['costo_unitario_bs'] as num?)?.toDouble() ?? 0.0;
+                                          final cUsd = (item['costo_unitario_usd'] as num?)?.toDouble() ?? 0.0;
+                                          final subBs = (item['subtotal_bs'] as num?)?.toDouble() ?? 0.0;
+                                          final subUsd = (item['subtotal_usd'] as num?)?.toDouble() ?? 0.0;
 
                                           return DataRow(
                                             cells: [
                                               DataCell(Text('${idx + 1}')),
                                               DataCell(Text(item['descripcion'] ?? '')),
                                               DataCell(Text('${item['cantidad']}')),
-                                              DataCell(Text('\$${(item['costo_unitario_usd'] as double).toStringAsFixed(2)}')),
                                               DataCell(Text('Bs ${cBs.toStringAsFixed(2)}')),
+                                              DataCell(Text('\$${cUsd.toStringAsFixed(2)}')),
                                               DataCell(Chip(
                                                 label: Text(item['aplica_iva'] ? '16%' : 'Exento', style: const TextStyle(fontSize: 10)),
                                                 backgroundColor: item['aplica_iva'] ? Colors.blue.shade100 : Colors.green.shade100,
                                               )),
-                                              DataCell(Text('\$${(item['subtotal_usd'] as double).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold))),
-                                              DataCell(Text('Bs ${subBs.toStringAsFixed(2)}')),
-                                              DataCell(Text(item['nuevo_precio_usd'] != null ? '\$${item['nuevo_precio_usd']}' : '-')),
+                                              DataCell(Text('Bs ${subBs.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold))),
+                                              DataCell(Text('\$${subUsd.toStringAsFixed(2)}')),
+                                              DataCell(
+                                                item['producto_id'] == null
+                                                    ? Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors.grey.shade200,
+                                                          borderRadius: BorderRadius.circular(4),
+                                                        ),
+                                                        child: const Text('Servicio / Gasto', style: TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.bold)),
+                                                      )
+                                                    : Text(item['nuevo_precio_usd'] != null ? '\$${item['nuevo_precio_usd']}' : '-')
+                                              ),
                                               DataCell(IconButton(
                                                 icon: const Icon(Icons.delete, color: Colors.red),
                                                 onPressed: () => _eliminarRenglon(idx),
@@ -2666,7 +3012,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                         children: [
                           Icon(Icons.shield_outlined, color: Colors.deepOrange),
                           SizedBox(width: 8),
-                          Text('3. Retenciones Fiscales (SENIAT Venezuela)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          Text('3. Retenciones Fiscales', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -2706,7 +3052,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                               ),
                               const Spacer(),
                               Text(
-                                'IVA Retenido: \$${totales['iva_retenido_usd']!.toStringAsFixed(2)} (Bs ${totales['iva_retenido_bs']!.toStringAsFixed(2)})',
+                                'IVA Retenido: Bs ${_formatearMontoBs(totales['iva_retenido_bs']!)} (Ref: \$${totales['iva_retenido_usd']!.toStringAsFixed(2)})',
                                 style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepOrange),
                               ),
                             ]
@@ -2738,7 +3084,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                                 const Spacer(),
                                 if (_aplicaRetencionIslr)
                                   Text(
-                                    'ISLR Retenido: \$${totales['islr_retenido_usd']!.toStringAsFixed(2)} (Bs ${totales['islr_retenido_bs']!.toStringAsFixed(2)})',
+                                    'ISLR Retenido: Bs ${_formatearMontoBs(totales['islr_retenido_bs']!)} (Ref: \$${totales['islr_retenido_usd']!.toStringAsFixed(2)})',
                                     style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple),
                                   ),
                               ],
@@ -2772,16 +3118,6 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                                       controller: _porcentajeRetIslrController,
                                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                       decoration: const InputDecoration(labelText: '% Ret. ISLR *', suffixText: '%', border: OutlineInputBorder(), isDense: true),
-                                      onChanged: (_) => setState(() {}),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    flex: 1,
-                                    child: TextField(
-                                      controller: _sustraendoIslrBsController,
-                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                      decoration: const InputDecoration(labelText: 'Sustraendo (Bs)', prefixText: 'Bs ', border: OutlineInputBorder(), isDense: true),
                                       onChanged: (_) => setState(() {}),
                                     ),
                                   ),
@@ -2876,7 +3212,7 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
 
                           const SizedBox(width: 32),
 
-                          // Columna Derecha: Totales con Desglose de Retenciones
+                          // Columna Derecha: Totales con Desglose de Retenciones (Bolívares como moneda principal)
                           Expanded(
                             flex: 3,
                             child: Container(
@@ -2888,26 +3224,26 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                               ),
                               child: Column(
                                 children: [
-                                  _filaTotal('Compras Exentas:', '\$${totales['exento_usd']!.toStringAsFixed(2)}', 'Bs ${totales['exento_bs']!.toStringAsFixed(2)}'),
+                                  _filaTotal('Compras Exentas:', 'Bs ${_formatearMontoBs(totales['exento_bs']!)}', '\$${totales['exento_usd']!.toStringAsFixed(2)}'),
                                   const SizedBox(height: 4),
-                                  _filaTotal('Base Imponible (16%):', '\$${totales['base_usd']!.toStringAsFixed(2)}', 'Bs ${totales['base_bs']!.toStringAsFixed(2)}'),
+                                  _filaTotal('Base Imponible (16%):', 'Bs ${_formatearMontoBs(totales['base_bs']!)}', '\$${totales['base_usd']!.toStringAsFixed(2)}'),
                                   const SizedBox(height: 4),
-                                  _filaTotal('Crédito Fiscal IVA (16%):', '\$${totales['iva_usd']!.toStringAsFixed(2)}', 'Bs ${totales['iva_bs']!.toStringAsFixed(2)}'),
+                                  _filaTotal('Crédito Fiscal IVA (16%):', 'Bs ${_formatearMontoBs(totales['iva_bs']!)}', '\$${totales['iva_usd']!.toStringAsFixed(2)}'),
                                   const Divider(height: 12),
-                                  _filaTotal('TOTAL FACTURA:', '\$${totales['total_usd']!.toStringAsFixed(2)}', 'Bs ${totales['total_bs']!.toStringAsFixed(2)}', isBold: true),
+                                  _filaTotal('TOTAL FACTURA:', 'Bs ${_formatearMontoBs(totales['total_bs']!)}', '\$${totales['total_usd']!.toStringAsFixed(2)}', isBold: true),
                                   if (_aplicaRetencionIva) ...[
                                     const SizedBox(height: 4),
-                                    _filaTotal('(-) Retención IVA ($_porcentajeRetIva%):', '-\$${totales['iva_retenido_usd']!.toStringAsFixed(2)}', '-Bs ${totales['iva_retenido_bs']!.toStringAsFixed(2)}', color: Colors.deepOrange),
+                                    _filaTotal('(-) Retención IVA ($_porcentajeRetIva%):', '-Bs ${_formatearMontoBs(totales['iva_retenido_bs']!)}', '-\$${totales['iva_retenido_usd']!.toStringAsFixed(2)}', color: Colors.deepOrange),
                                   ],
                                   if (_aplicaRetencionIslr) ...[
                                     const SizedBox(height: 4),
-                                    _filaTotal('(-) Retención ISLR:', '-\$${totales['islr_retenido_usd']!.toStringAsFixed(2)}', '-Bs ${totales['islr_retenido_bs']!.toStringAsFixed(2)}', color: Colors.purple),
+                                    _filaTotal('(-) Retención ISLR:', '-Bs ${_formatearMontoBs(totales['islr_retenido_bs']!)}', '-\$${totales['islr_retenido_usd']!.toStringAsFixed(2)}', color: Colors.purple),
                                   ],
                                   const Divider(height: 16),
                                   _filaTotal(
                                     'NETO A PAGAR PROVEEDOR:',
+                                    'Bs ${_formatearMontoBs(totales['neto_pagar_bs']!)}',
                                     '\$${totales['neto_pagar_usd']!.toStringAsFixed(2)}',
-                                    'Bs ${totales['neto_pagar_bs']!.toStringAsFixed(2)}',
                                     isBold: true,
                                     color: Colors.green.shade900
                                   ),
@@ -2945,17 +3281,19 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
     );
   }
 
-  Widget _filaTotal(String titulo, String montoUsd, String montoBs, {bool isBold = false, Color? color}) {
+  Widget _filaTotal(String titulo, String montoBs, String montoUsd, {bool isBold = false, Color? color}) {
     final c = color ?? (isBold ? Colors.blue.shade900 : Colors.black87);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(titulo, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: isBold ? 14 : 12.5, color: c)),
+        Expanded(
+          child: Text(titulo, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: isBold ? 14 : 12.5, color: c)),
+        ),
         Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(montoUsd, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.w600, fontSize: isBold ? 15 : 12.5, color: c)),
-            Text(montoBs, style: TextStyle(fontSize: isBold ? 12 : 10.5, color: Colors.grey.shade700)),
+            Text(montoBs, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.w600, fontSize: isBold ? 15 : 12.5, color: c)),
+            Text('(Ref: $montoUsd)', style: TextStyle(fontSize: isBold ? 12 : 10.5, color: Colors.grey.shade700)),
           ],
         )
       ],
@@ -2982,7 +3320,9 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
 
         totalComprasUsd += (double.tryParse(c['total_usd'].toString()) ?? 0.0) * mult;
         totalComprasBs += (double.tryParse(c['total_bs'].toString()) ?? 0.0) * mult;
-        totalIvaCreditoBs += ((double.tryParse(c['iva_usd'].toString()) ?? 0.0) * tasa) * mult;
+        final ivaValBs = double.tryParse(c['iva_bs']?.toString() ?? '') ??
+            ((double.tryParse(c['iva_usd']?.toString() ?? '') ?? 0.0) * tasa);
+        totalIvaCreditoBs += ivaValBs * mult;
 
         final ivaRet = (double.tryParse(c['iva_retenido_bs'].toString()) ?? 0.0) * mult;
         final islrRet = (double.tryParse(c['islr_retenido_bs'].toString()) ?? 0.0) * mult;
@@ -3191,8 +3531,8 @@ class _ComprasScreenState extends State<ComprasScreen> with SingleTickerProvider
                                   final mult = esNC ? -1.0 : 1.0;
                                   final tasa = (double.tryParse(compra['tasa_bcv'].toString()) ?? 1.0);
 
-                                  final baseBs = ((double.tryParse(compra['base_imponible_usd'].toString()) ?? 0.0) * tasa) * mult;
-                                  final ivaBs = ((double.tryParse(compra['iva_usd'].toString()) ?? 0.0) * tasa) * mult;
+                                  final baseBs = (double.tryParse(compra['base_imponible_bs']?.toString() ?? '') ?? ((double.tryParse(compra['base_imponible_usd'].toString()) ?? 0.0) * tasa)) * mult;
+                                  final ivaBs = (double.tryParse(compra['iva_bs']?.toString() ?? '') ?? ((double.tryParse(compra['iva_usd'].toString()) ?? 0.0) * tasa)) * mult;
                                   final totalBs = (double.tryParse(compra['total_bs'].toString()) ?? 0.0) * mult;
                                   final retIvaBs = (double.tryParse(compra['iva_retenido_bs'].toString()) ?? 0.0) * mult;
                                   final retIslrBs = (double.tryParse(compra['islr_retenido_bs'].toString()) ?? 0.0) * mult;

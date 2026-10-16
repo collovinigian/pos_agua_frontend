@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'main_layout.dart';
+import 'app_events.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppEvents.cargarConfiguracion();
   runApp(const POSAguaApp());
 }
 
@@ -10,15 +13,30 @@ class POSAguaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Sistema de Facturación',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        // Esto le da un toque moderno a toda la app
-        scaffoldBackgroundColor: Colors.white, 
-      ),
-      home: const MainLayout(),
+    return ValueListenableBuilder<ConfigData>(
+      valueListenable: AppEvents.configNotifier,
+      builder: (context, config, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Sistema de Facturación',
+          themeMode: config.themeMode,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: config.seedColor,
+              brightness: Brightness.light,
+            ),
+            useMaterial3: true,
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: config.seedColor,
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+          ),
+          home: const MainLayout(),
+        );
+      },
     );
   }
 }
