@@ -198,8 +198,622 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
                   },
                 ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar'))],
+        actions: [
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _mostrarModalReimpresion(factura);
+            },
+            icon: const Icon(Icons.print, size: 16),
+            label: const Text('Reimprimir Copia'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar')),
+        ],
       )
+    );
+  }
+
+  // --- MODAL DE REIMPRESIÓN (TICKET TFHKA O PDF CARTA) ---
+  void _mostrarModalReimpresion(Map<String, dynamic> factura) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.indigo.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.print, color: Colors.indigo, size: 28),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Reimprimir Factura ${factura['numero_factura'] ?? ''}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const SizedBox(height: 2),
+                  const Text('Modalidad: Copia No Fiscal (Sin efecto en inventario ni Reporte Z)',
+                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Divider(),
+              const SizedBox(height: 12),
+              
+              // OPCIÓN 1: TICKET FÍSICO IMPRESORA FISCAL (DNF)
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _reimprimirTicketFiscal(factura);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade700,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.receipt_long, color: Colors.white, size: 28),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('1. Ticket Físico (Impresora Fiscal)',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Emite ticket térmico en la impresora TFHKA PP9 PLUS (Comandos 80/81 DNF).',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.blue),
+                    ],
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+
+              // OPCIÓN 2: FACTURA DIGITAL PDF CARTA
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _generarFacturaPdfCarta(factura);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade700,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 28),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('2. Factura Digital en PDF (Tamaño Carta)',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Documento formal membretado listo para guardar (.pdf), enviar por WhatsApp/Correo o imprimir en impresora normal.',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.red),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- REIMPRIMIR TICKET FÍSICO (TFHKA DNF) ---
+  Future<void> _reimprimirTicketFiscal(Map<String, dynamic> factura) async {
+    final id = factura['id'];
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            const SizedBox(width: 12),
+            Text('🖨️ Enviando copia de factura ${factura['numero_factura']} a la impresora fiscal...'),
+          ],
+        ),
+        duration: const Duration(seconds: 4),
+        backgroundColor: Colors.blue.shade800,
+      ),
+    );
+
+    try {
+      final res = await http.post(
+        Uri.parse('http://127.0.0.1:3000/api/facturas/$id/reimprimir'),
+      );
+
+      if (res.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ Copia No Fiscal de la factura ${factura['numero_factura']} impresa con éxito'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } else {
+        String errorMsg = 'Error al imprimir ticket';
+        try {
+          final data = jsonDecode(res.body);
+          if (data['mensaje'] != null) errorMsg = data['mensaje'];
+        } catch (_) {}
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ Error: $errorMsg'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error de conexión al reimprimir: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  // --- GENERAR FACTURA DIGITAL EN PDF TAMAÑO CARTA (COPIA NO FISCAL) ---
+  Future<void> _generarFacturaPdfCarta(Map<String, dynamic> factura) async {
+    final pdf = pw.Document();
+    final config = AppEvents.configNotifier.value;
+
+    // Logo si está configurado en Base64
+    pw.Widget? logoWidget;
+    if (config.logoBase64 != null && config.logoBase64!.isNotEmpty) {
+      try {
+        final imageBytes = base64Decode(config.logoBase64!.split(',').last);
+        logoWidget = pw.Image(
+          pw.MemoryImage(imageBytes),
+          width: 70,
+          height: 70,
+          fit: pw.BoxFit.contain,
+        );
+      } catch (_) {}
+    }
+
+    final cliente = factura['Cliente'] ?? {};
+    final String nombreCliente = cliente['nombre'] ?? 'Cliente Contado';
+    final String rifCliente = '${cliente['tipo_documento'] ?? 'V'}-${cliente['numero_documento'] ?? '00000000'}';
+    final String dirCliente = cliente['direccion'] != null && cliente['direccion'].toString().trim().isNotEmpty
+        ? cliente['direccion'].toString()
+        : 'N/A';
+    final String telCliente = cliente['telefono'] != null && cliente['telefono'].toString().trim().isNotEmpty
+        ? cliente['telefono'].toString()
+        : 'N/A';
+
+    final double tasa = double.tryParse(factura['tasa_bcv'].toString()) ?? 1.0;
+    final double subtotalUsd = double.tryParse(factura['subtotal_usd'].toString()) ?? 0.0;
+    final double ivaUsd = double.tryParse(factura['iva_usd'].toString()) ?? 0.0;
+    final double totalUsd = double.tryParse(factura['total_usd'].toString()) ?? 0.0;
+    final double totalBs = double.tryParse((factura['total_bs'] ?? '0').toString()) ?? (totalUsd * tasa);
+    final double subtotalBs = subtotalUsd * tasa;
+    final double ivaBs = ivaUsd * tasa;
+
+    final diasCredito = int.tryParse(factura['dias_credito']?.toString() ?? '0') ?? 0;
+    final String condicion = diasCredito > 0 ? 'Crédito ($diasCredito días)' : 'Contado';
+    
+    String fechaEmision = '';
+    try {
+      fechaEmision = factura['createdAt'] != null
+          ? _formatearFecha(factura['createdAt'].toString())
+          : DateFormat('dd/MM/yyyy hh:mm a').format(DateTime.now());
+    } catch (_) {
+      fechaEmision = DateFormat('dd/MM/yyyy hh:mm a').format(DateTime.now());
+    }
+
+    final List<dynamic> detalles = factura['DetalleFacturas'] ?? factura['DetalleFactura'] ?? factura['detalles_factura'] ?? [];
+
+    // Calcular base exenta y base imponible si hay productos exentos y gravados
+    double baseImponibleUsd = 0.0;
+    double montoExentoUsd = 0.0;
+    for (var d in detalles) {
+      final double subItem = double.tryParse(d['subtotal_usd']?.toString() ?? '0') ?? 
+          ((double.tryParse(d['cantidad']?.toString() ?? '0') ?? 0) * (double.tryParse(d['precio_unitario_usd']?.toString() ?? '0') ?? 0));
+      if (d['aplica_iva'] == true) {
+        baseImponibleUsd += subItem;
+      } else {
+        montoExentoUsd += subItem;
+      }
+    }
+    // Si no había detalles desglosados, usamos los totales de la factura
+    if (detalles.isEmpty) {
+      if (ivaUsd > 0) {
+        baseImponibleUsd = subtotalUsd;
+      } else {
+        montoExentoUsd = subtotalUsd;
+      }
+    }
+    final double baseImponibleBs = baseImponibleUsd * tasa;
+    final double montoExentoBs = montoExentoUsd * tasa;
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.letter,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+        build: (pw.Context context) => [
+          // 1. BANNER SUPERIOR COPIA NO FISCAL
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.grey200,
+              border: pw.Border.all(color: PdfColors.grey400, width: 1),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+            ),
+            child: pw.Column(
+              children: [
+                pw.Text(
+                  '*** DOCUMENTO NO FISCAL - COPIA DE FACTURA ***',
+                  style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.red800),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  'ESTE DOCUMENTO ES UNA REIMPRESIÓN PARA FINES ADMINISTRATIVOS - NO GENERA CRÉDITO FISCAL',
+                  style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 14),
+
+          // 2. ENCABEZADO: EMPRESA (IZQ) Y DATOS DE FACTURA (DER)
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              // Columna Izquierda: Datos de la Empresa
+              pw.Expanded(
+                flex: 6,
+                child: pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    if (logoWidget != null) ...[
+                      logoWidget,
+                      pw.SizedBox(width: 12),
+                    ],
+                    pw.Expanded(
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            config.razonSocial,
+                            style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900),
+                          ),
+                          pw.SizedBox(height: 3),
+                          pw.Text('RIF: ${config.rif}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                          pw.Text('Dirección: ${config.direccion}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey800)),
+                          if (config.telefono.isNotEmpty)
+                            pw.Text('Teléfono: ${config.telefono}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey800)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(width: 14),
+
+              // Columna Derecha: Recuadro Factura
+              pw.Expanded(
+                flex: 4,
+                child: pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.blue50,
+                    border: pw.Border.all(color: PdfColors.blue800, width: 1.2),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text('FACTURA', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                          pw.Container(
+                            padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            decoration: const pw.BoxDecoration(color: PdfColors.red700, borderRadius: pw.BorderRadius.all(pw.Radius.circular(3))),
+                            child: pw.Text('COPIA NO FISCAL', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.white)),
+                          ),
+                        ],
+                      ),
+                      pw.Divider(color: PdfColors.blue800, height: 8),
+                      pw.Text('N° Factura: ${factura['numero_factura'] ?? ''}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Fecha: $fechaEmision', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('Condición: $condicion', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('Método de Pago: ${factura['metodo_pago'] ?? 'N/A'}', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('Estado: ${factura['estado']}', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: factura['estado'] == 'ANULADA' ? PdfColors.red800 : PdfColors.green800)),
+                      pw.Text('Tasa Oficial BCV: Bs ${tasa.toStringAsFixed(2)} / \$', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 14),
+
+          // 3. DATOS DEL CLIENTE
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.all(8),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.grey300),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('DATOS DEL CLIENTE / RECEPTOR', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800)),
+                pw.Divider(height: 6, color: PdfColors.grey300),
+                pw.Row(
+                  children: [
+                    pw.Expanded(
+                      flex: 6,
+                      child: pw.Text('Razón Social / Nombre: $nombreCliente', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
+                    ),
+                    pw.Expanded(
+                      flex: 4,
+                      child: pw.Text('CI / RIF: $rifCliente', style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold)),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 3),
+                pw.Row(
+                  children: [
+                    pw.Expanded(
+                      flex: 6,
+                      child: pw.Text('Dirección Fiscal: $dirCliente', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey800)),
+                    ),
+                    pw.Expanded(
+                      flex: 4,
+                      child: pw.Text('Teléfono: $telCliente', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey800)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 12),
+
+          // 4. TABLA DE DETALLES DE PRODUCTOS
+          pw.TableHelper.fromTextArray(
+            headers: ['#', 'Descripción', 'Cant.', 'Precio (\$)', 'Precio (Bs)', 'Alícuota', 'Total (\$)', 'Total (Bs)'],
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 8),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
+            cellStyle: const pw.TextStyle(fontSize: 8),
+            columnWidths: const {
+              0: pw.FixedColumnWidth(24),
+              1: pw.FlexColumnWidth(3),
+              2: pw.FixedColumnWidth(40),
+              3: pw.FixedColumnWidth(55),
+              4: pw.FixedColumnWidth(65),
+              5: pw.FixedColumnWidth(48),
+              6: pw.FixedColumnWidth(60),
+              7: pw.FixedColumnWidth(70),
+            },
+            cellAlignments: {
+              0: pw.Alignment.center,
+              1: pw.Alignment.centerLeft,
+              2: pw.Alignment.center,
+              3: pw.Alignment.centerRight,
+              4: pw.Alignment.centerRight,
+              5: pw.Alignment.center,
+              6: pw.Alignment.centerRight,
+              7: pw.Alignment.centerRight,
+            },
+            data: detalles.asMap().entries.map((entry) {
+              final idx = entry.key + 1;
+              final d = entry.value;
+              final nombreProd = d['Producto'] != null ? d['Producto']['nombre'] : (d['nombre'] ?? 'Producto');
+              final double cant = double.tryParse(d['cantidad']?.toString() ?? '1') ?? 1.0;
+              final double pUsd = double.tryParse(d['precio_unitario_usd']?.toString() ?? '0') ?? 0.0;
+              final double pBs = pUsd * tasa;
+              final double subUsd = double.tryParse(d['subtotal_usd']?.toString() ?? '0') ?? (cant * pUsd);
+              final double subBs = subUsd * tasa;
+              final bool aplicaIva = d['aplica_iva'] == true;
+
+              return [
+                '$idx',
+                nombreProd,
+                cant.toStringAsFixed(cant % 1 == 0 ? 0 : 2),
+                '\$${pUsd.toStringAsFixed(2)}',
+                'Bs ${pBs.toStringAsFixed(2)}',
+                aplicaIva ? '16% (G)' : 'Exento (E)',
+                '\$${subUsd.toStringAsFixed(2)}',
+                'Bs ${subBs.toStringAsFixed(2)}',
+              ];
+            }).toList(),
+          ),
+          pw.SizedBox(height: 12),
+
+          // 5. RESUMEN Y TOTALES
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              // Izquierda: Nota informativa
+              pw.Expanded(
+                flex: 5,
+                child: pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.grey100,
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                    border: pw.Border.all(color: PdfColors.grey300),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('NOTAS Y CONDICIONES:', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800)),
+                      pw.SizedBox(height: 3),
+                      pw.Text('• Factura original emitida a través de impresora fiscal TFHKA / Aclas.', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700)),
+                      pw.Text('• Montos en Bolívares calculados a la tasa de cambio histórica de la emisión (\$1 = Bs ${tasa.toStringAsFixed(2)}).', style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700)),
+                      if (factura['estado'] == 'ANULADA')
+                        pw.Text('• ADVERTENCIA: Esta factura fue ANULADA en el sistema mediante Nota de Crédito fiscal.', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.red800)),
+                      if (factura['estado'] == 'PENDIENTE')
+                        pw.Text('• Factura emitida a crédito, pendiente por cobrar.', style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.orange800)),
+                    ],
+                  ),
+                ),
+              ),
+              pw.SizedBox(width: 20),
+
+              // Derecha: Cuadro de Totales
+              pw.Expanded(
+                flex: 5,
+                child: pw.Container(
+                  padding: const pw.EdgeInsets.all(8),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.blueGrey300),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Column(
+                    children: [
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text('Subtotal:', style: const pw.TextStyle(fontSize: 8)),
+                          pw.Text('\$${subtotalUsd.toStringAsFixed(2)}  |  Bs ${subtotalBs.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 8)),
+                        ],
+                      ),
+                      if (montoExentoUsd > 0) ...[
+                        pw.SizedBox(height: 2),
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text('Monto Exento (E):', style: const pw.TextStyle(fontSize: 8)),
+                            pw.Text('\$${montoExentoUsd.toStringAsFixed(2)}  |  Bs ${montoExentoBs.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 8)),
+                          ],
+                        ),
+                      ],
+                      if (baseImponibleUsd > 0) ...[
+                        pw.SizedBox(height: 2),
+                        pw.Row(
+                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                          children: [
+                            pw.Text('Base Imponible (G 16%):', style: const pw.TextStyle(fontSize: 8)),
+                            pw.Text('\$${baseImponibleUsd.toStringAsFixed(2)}  |  Bs ${baseImponibleBs.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 8)),
+                          ],
+                        ),
+                      ],
+                      pw.SizedBox(height: 2),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text('IVA (16%):', style: const pw.TextStyle(fontSize: 8)),
+                          pw.Text('\$${ivaUsd.toStringAsFixed(2)}  |  Bs ${ivaBs.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 8)),
+                        ],
+                      ),
+                      pw.Divider(color: PdfColors.blueGrey800, height: 8),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text('TOTAL USD:', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.green900)),
+                          pw.Text('\$${totalUsd.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.green900)),
+                        ],
+                      ),
+                      pw.SizedBox(height: 2),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          pw.Text('TOTAL BS:', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                          pw.Text('Bs ${totalBs.toStringAsFixed(2)}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 18),
+
+          // 6. PIE DE PÁGINA
+          pw.Center(
+            child: pw.Text(
+              '*** COPIA SIN DERECHO A CRÉDITO FISCAL - REIMPRESIÓN DIGITAL ***',
+              style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.grey600),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final String numFacturaLimpio = (factura['numero_factura'] ?? '000').replaceAll('/', '_').replaceAll('\\', '_');
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: 'Copia_Factura_${numFacturaLimpio}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
     );
   }
 
@@ -701,7 +1315,14 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
                               tooltip: 'Ver Productos',
                               onPressed: () => _verDetallesProductos(factura),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 4),
+
+                            IconButton(
+                              icon: const Icon(Icons.print, color: Colors.indigo),
+                              tooltip: 'Reimprimir Copia (No Fiscal)',
+                              onPressed: () => _mostrarModalReimpresion(factura),
+                            ),
+                            const SizedBox(width: 4),
 
                             if (isPendiente) ...[
                               ElevatedButton.icon(
