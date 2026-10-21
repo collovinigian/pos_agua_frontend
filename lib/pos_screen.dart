@@ -655,9 +655,15 @@ class _PosScreenState extends State<PosScreen> {
       );
       if (res.statusCode == 201) {
         if (mounted) {
+          String mensajeExito = '¡Factura Procesada con Éxito!';
+          try {
+            final data = jsonDecode(res.body);
+            if (data['mensaje'] != null) mensajeExito = data['mensaje'];
+          } catch (_) {}
+
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ ¡Factura Procesada con Éxito!'),
+            SnackBar(
+              content: Text('✅ $mensajeExito'),
               backgroundColor: Colors.green,
             ),
           );
@@ -675,7 +681,7 @@ class _PosScreenState extends State<PosScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('❌ Error al procesar')));
+        ).showSnackBar(SnackBar(content: Text('❌ Error al procesar: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
